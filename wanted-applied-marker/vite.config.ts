@@ -8,7 +8,9 @@ export default defineConfig({
       userscript: {
         name: "Wanted Applied Marker (Infinite Scroll)",
         namespace: "http://tampermonkey.net/",
-        version: "2026-02-24",
+        version:
+          process.env["SCRIPT_VERSION"] ??
+          new Date().toISOString().slice(0, 10),
         description:
           "Mark/hide already-applied jobs on Wanted list. Works with infinite scroll.",
         author: "Dongmin, Yu",
