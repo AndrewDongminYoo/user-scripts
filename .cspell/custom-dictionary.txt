@@ -1,6 +1,7 @@
 # Custom Dictionary Words
 Avenir
 Dongmin
+dongminyu
 dotenv
 eabi
 esbuild
