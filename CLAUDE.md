@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+See also: `AGENTS.md` (root operating guide), `docs/AGENTS.md`, and `wanted-applied-marker/AGENTS.md`.
+
 ## Project Overview
 
 This monorepo manages browser userscripts (Tampermonkey/Greasemonkey). Each userscript has two forms:
@@ -11,7 +13,8 @@ This monorepo manages browser userscripts (Tampermonkey/Greasemonkey). Each user
 
 Current scripts:
 
-- `wanted-marker.js` / `wanted-applied-marker/` — Marks already-applied jobs on Wanted.co.kr job listings
+- `wanted-marker.js` — Current runtime source-of-truth userscript; marks already-applied jobs on Wanted.co.kr job listings
+- `wanted-applied-marker/` — Development workspace for migration to TypeScript/Vite (currently scaffold/template, migration pending)
 
 ## Package Manager
 
@@ -44,6 +47,11 @@ Each distributable script at root follows this pattern:
 - **Deduplication**: `inflight` Map prevents duplicate in-flight requests for the same `jobId`; `seenAnchors` WeakSet prevents re-processing the same DOM node
 - **Infinite scroll**: `MutationObserver` on `document.documentElement` triggers debounced re-scan (300ms)
 - **API**: `https://www.wanted.co.kr/api/chaos/jobs/v4/{jobId}/details` — checks `data.application` field for apply status
+
+### Migration Status (wanted-applied-marker)
+
+- The migration design/plan is documented in `docs/plans/2026-02-24-wanted-applied-marker-dev-env-design.md` and `docs/plans/2026-02-24-wanted-applied-marker-dev-env.md`.
+- At present, migration is not fully implemented in code (`vite.config.ts` and migrated `src/main.ts` are not yet present).
 
 ### Adding a New Script
 

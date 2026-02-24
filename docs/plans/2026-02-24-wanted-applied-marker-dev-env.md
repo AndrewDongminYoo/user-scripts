@@ -2,6 +2,10 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
+**Date**: 2026-02-24
+**Status**: Pending (Not executed)
+**Execution note**: The plan below describes target work; repository contents still reflect pre-migration scaffold files in `wanted-applied-marker/src/`.
+
 **Goal:** Replace the default Vite counter template in `wanted-applied-marker/` with a proper userscript dev environment that builds `dist/wanted-applied-marker.user.js` via `vite-plugin-monkey`.
 
 **Architecture:** `vite-plugin-monkey` manages the Tampermonkey metadata header and GM API declarations; TypeScript source lives in `src/main.ts`; `pnpm build` outputs a single `.user.js` ready for Tampermonkey installation.
