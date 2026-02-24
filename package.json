@@ -1,13 +1,18 @@
 {
   "name": "user-scripts",
   "version": "1.0.0",
-  "description": "",
+  "author": "Dongmin, Yoo <ydm2790@gmail.com> (https://github.com/AndrewDongminYoo)",
+  "description": "This monorepo manages browser userscripts (Tampermonkey/Greasemonkey).",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "tampermonkey",
+    "userscript",
+    "greasemonkey",
+    "automation"
+  ],
+  "license": "MIT",
   "packageManager": "pnpm@10.26.2"
 }
