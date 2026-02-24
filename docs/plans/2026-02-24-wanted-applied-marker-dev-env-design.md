@@ -90,7 +90,7 @@ type Cache = Record<number, CacheEntry>;
 
 ### Dev Workflow
 
-```
+```bash
 pnpm dev   → Vite dev server starts
              → Install dev URL (http://localhost:5173/...) in Tampermonkey
              → Edit src/ → Tampermonkey auto-reloads
