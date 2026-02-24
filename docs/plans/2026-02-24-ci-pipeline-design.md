@@ -18,7 +18,7 @@ Automatic deployment pipeline: when a release-please release PR is merged to `ma
 
 ## Flow
 
-```
+```plaintext
 feat(wanted-applied-marker): ... → main
   → release-please.yml: creates/updates Release PR
   → PR merge → release-please creates GitHub Release + tag (wanted-applied-marker-v1.x.x)
