@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package:
+          - wanted-applied-marker
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Check for release-worthy commits
+        id: check
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          LAST_TAG=$(git tag --list "${PACKAGE}-*" --sort=-version:refname | head -1)
+
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%s" -- "${PACKAGE}/" | grep -cE "^(feat|fix|refactor|perf)(\([^)]+\))?[!]?:" || echo "0")
+          else
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:"%s" -- "${PACKAGE}/" | grep -cE "^(feat|fix|refactor|perf)(\([^)]+\))?[!]?:" || echo "0")
+          fi
+
+          if [ "$COMMITS" -gt 0 ]; then
+            echo "release_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate date version
+        if: steps.check.outputs.release_needed == 'true'
+        id: version
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          BASE_DATE=$(date -u +'%Y-%m-%d')
+          BASE_TAG="${PACKAGE}-${BASE_DATE}"
+
+          if git tag --list "${BASE_TAG}" | grep -q .; then
+            COUNTER=1
+            while git tag --list "${BASE_TAG}.${COUNTER}" | grep -q .; do
+              COUNTER=$((COUNTER + 1))
+            done
+            VERSION="${BASE_DATE}.${COUNTER}"
+          else
+            VERSION="${BASE_DATE}"
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${PACKAGE}-${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        if: steps.check.outputs.release_needed == 'true'
+        env:
+          SCRIPT_VERSION: ${{ steps.version.outputs.version }}
+          PACKAGE: ${{ matrix.package }}
+        run: pnpm --filter "$PACKAGE" build
+
+      - name: Create tag and push
+        if: steps.check.outputs.release_needed == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub Release and upload asset
+        if: steps.check.outputs.release_needed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "${{ matrix.package }} ${{ steps.version.outputs.version }}"
+          files: ${{ matrix.package }}/dist/${{ matrix.package }}.user.js
