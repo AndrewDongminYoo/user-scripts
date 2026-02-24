@@ -410,7 +410,7 @@ cd wanted-applied-marker && pnpm build
 
 Expected output (approximately):
 
-```
+```log
 vite v7.x.x building for production...
 ✓ built in Xms
 dist/wanted-applied-marker.user.js  XX kB
@@ -424,7 +424,7 @@ head -15 wanted-applied-marker/dist/wanted-applied-marker.user.js
 
 Expected: The file starts with a valid Tampermonkey metadata block:
 
-```
+```js
 // ==UserScript==
 // @name         Wanted Applied Marker (Infinite Scroll)
 // @namespace    http://tampermonkey.net/
