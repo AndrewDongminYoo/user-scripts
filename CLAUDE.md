@@ -13,8 +13,8 @@ This monorepo manages browser userscripts (Tampermonkey/Greasemonkey). Each user
 
 Current scripts:
 
-- `wanted-marker.js` — Current runtime source-of-truth userscript; marks already-applied jobs on Wanted.co.kr job listings
-- `wanted-applied-marker/` — Development workspace for migration to TypeScript/Vite (currently scaffold/template, migration pending)
+- `wanted-applied-marker/` — Marks already-applied jobs on Wanted.co.kr job listings (TypeScript source, built with `vite-plugin-monkey`)
+- `wanted-marker.js` — Legacy standalone IIFE (to be removed once the subdirectory build is verified)
 
 ## Package Manager
 
@@ -25,8 +25,8 @@ Use **pnpm** exclusively (configured at root with `pnpm@10.26.2`).
 Run from inside the script's subdirectory (e.g., `wanted-applied-marker/`):
 
 ```sh
-pnpm dev        # Start Vite dev server
-pnpm build      # Type-check (tsc) then bundle with Vite
+pnpm dev        # Start Vite dev server → install the printed .user.js URL in Tampermonkey for live reload
+pnpm build      # Type-check (tsc) then bundle → dist/<name>.user.js (includes Tampermonkey header)
 pnpm preview    # Preview built output
 ```
 
@@ -34,11 +34,12 @@ pnpm preview    # Preview built output
 
 ### Userscript Structure
 
-Each distributable script at root follows this pattern:
+Each script lives in its own subdirectory with `vite-plugin-monkey`:
 
-- **Tampermonkey metadata block** (`// ==UserScript==` ... `// ==/UserScript==`) at the top
-- **Single IIFE** (`(() => { "use strict"; ... })()`) — no imports, fully self-contained
-- **GM\_ API usage**: `GM_getValue`/`GM_setValue` for persistent storage (not localStorage)
+- **Source**: `src/main.ts` — TypeScript, no imports, pure logic (Tampermonkey provides GM globals at runtime)
+- **GM types**: `src/env.d.ts` — `declare global` block importing `GmGetValueType`/`GmSetValueType` from `vite-plugin-monkey/dist/client`
+- **Build output**: `dist/<name>.user.js` — single file with Tampermonkey metadata header prepended by the plugin
+- **GM\_ API**: `GM_getValue`/`GM_setValue` for persistent storage (synchronous, legacy API — not the async `GM.*` API)
 
 ### wanted-marker.js Key Design
 
@@ -48,13 +49,10 @@ Each distributable script at root follows this pattern:
 - **Infinite scroll**: `MutationObserver` on `document.documentElement` triggers debounced re-scan (300ms)
 - **API**: `https://www.wanted.co.kr/api/chaos/jobs/v4/{jobId}/details` — checks `data.application` field for apply status
 
-### Migration Status (wanted-applied-marker)
-
-- The migration design/plan is documented in `docs/plans/2026-02-24-wanted-applied-marker-dev-env-design.md` and `docs/plans/2026-02-24-wanted-applied-marker-dev-env.md`.
-- At present, migration is not fully implemented in code (`vite.config.ts` and migrated `src/main.ts` are not yet present).
-
 ### Adding a New Script
 
-1. Create a subdirectory (e.g., `my-script/`) with `pnpm create vite` using the vanilla-ts template
-2. Develop in `my-script/src/`
-3. After building, produce the standalone distributable at `my-script.js` in the root with proper Tampermonkey headers
+1. Create a subdirectory with `pnpm create vite` using the `vanilla-ts` template
+2. Install `vite-plugin-monkey`: `pnpm add -D vite-plugin-monkey`
+3. Create `vite.config.ts` with the monkey plugin (see `wanted-applied-marker/vite.config.ts` as reference)
+4. Create `src/env.d.ts` to expose GM globals (see `wanted-applied-marker/src/env.d.ts` as reference)
+5. `pnpm build` → `dist/<name>.user.js`
