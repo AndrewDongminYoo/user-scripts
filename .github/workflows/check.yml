@@ -33,5 +33,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Build
+        run: pnpm -r build
+
+      - name: Test
+        run: pnpm -r test
+
       - name: Trunk Check
         uses: trunk-io/trunk-action@v1

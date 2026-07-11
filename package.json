@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r exec tsc --noEmit"
+    "typecheck": "pnpm -r exec tsc --noEmit",
+    "test": "pnpm -r test"
   },
   "keywords": [
     "tampermonkey",

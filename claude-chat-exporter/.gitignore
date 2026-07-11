@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# test scratch outputs
+test/_all.zip
+test/_z/
