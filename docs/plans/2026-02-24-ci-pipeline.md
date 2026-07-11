@@ -8,6 +8,8 @@
 
 **Tech Stack:** GitHub Actions, release-please-action v4, softprops/action-gh-release v2, trunk-io/trunk-action v1, pnpm workspaces
 
+> **Status: Completed — with divergence.** The shipped `release.yml` uses **date-based versioning** (`YYYY-MM-DD`, `.N` suffix for same-day) driven by conventional-commit detection, **not** `release-please`. See `CLAUDE.md` → "Release Workflow" for the implemented scheme.
+
 ---
 
 ### Task 1: Delete wanted-marker.js and verify

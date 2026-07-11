@@ -6,6 +6,6 @@
   - `trunk check`
   - `trunk fmt` (if formatting changes are expected)
 - If behavior changed in a userscript:
-  - Verify root distributable metadata block remains valid.
+  - Verify the `vite.config.ts` `userscript` metadata block is still valid and rebuild (`pnpm build`).
   - Verify userscript runtime behavior on target page(s).
-- Review diff for consistency with userscript architecture constraints (self-contained IIFE, GM\_\* persistence where applicable).
+- Review diff for consistency with userscript architecture constraints (import-free `src/main.ts`, GM\_\* persistence where applicable).

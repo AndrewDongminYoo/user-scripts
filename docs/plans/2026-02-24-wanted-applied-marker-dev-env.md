@@ -3,8 +3,8 @@
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Date**: 2026-02-24
-**Status**: Pending (Not executed)
-**Execution note**: The plan below describes target work; repository contents still reflect pre-migration scaffold files in `wanted-applied-marker/src/`.
+**Status**: Completed
+**Execution note**: Implemented — `wanted-applied-marker/src/main.ts` and `vite.config.ts` now build `dist/wanted-applied-marker.user.js`; the scaffold template files described below have been removed.
 
 **Goal:** Replace the default Vite counter template in `wanted-applied-marker/` with a proper userscript dev environment that builds `dist/wanted-applied-marker.user.js` via `vite-plugin-monkey`.
 
