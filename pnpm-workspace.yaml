@@ -1,5 +1,6 @@
 packages:
   - wanted-applied-marker
+  - claude-chat-exporter
 
 onlyBuiltDependencies:
   - esbuild
