@@ -1,12 +1,12 @@
 # wanted-applied-marker Dev Environment Design
 
 **Date**: 2026-02-24
-**Status**: Approved (Not implemented yet)
+**Status**: Completed (implemented in `wanted-applied-marker/`)
 
-## Current Repository State
+## Repository State At Design Time
 
-- `wanted-marker.js` at repo root remains the runtime source-of-truth.
-- `wanted-applied-marker/` still contains Vite template files and has not been fully migrated to userscript TypeScript source.
+- `wanted-marker.js` at repo root was the runtime source-of-truth (since removed by the migration).
+- `wanted-applied-marker/` still contained Vite template files, not yet migrated to userscript TypeScript source.
 
 ## Problem
 

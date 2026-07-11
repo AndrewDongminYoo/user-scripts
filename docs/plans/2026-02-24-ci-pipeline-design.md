@@ -1,7 +1,9 @@
 # CI/CD Pipeline Design
 
 **Date**: 2026-02-24
-**Status**: Approved
+**Status**: Approved — implemented with divergence
+
+> The shipped `release.yml` uses **date-based versioning** driven by conventional-commit detection on push to `main`, **not** the `release-please` flow described below. See `CLAUDE.md` → "Release Workflow" for the implemented scheme; the decisions below are the original design.
 
 ## Goal
 
