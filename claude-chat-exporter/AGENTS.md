@@ -17,7 +17,8 @@ claude-chat-exporter/
 ├── README.md
 ├── dist/            # build output (gitignored)
 └── src/
-    └── main.ts      # UI button + Claude API fetch + Markdown rendering
+    ├── main.ts      # UI buttons + Claude API fetch + Markdown + store-only ZIP
+    └── env.d.ts     # GM_addStyle global (see Grant note below)
 ```
 
 ## What To Change Here
