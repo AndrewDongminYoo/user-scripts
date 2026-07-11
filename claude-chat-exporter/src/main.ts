@@ -31,6 +31,9 @@ interface ChatMessage {
 interface Conversation {
   uuid?: string;
   name?: string;
+  model?: string;
+  created_at?: string;
+  updated_at?: string;
   chat_messages?: ChatMessage[];
   messages?: ChatMessage[];
 }
@@ -38,6 +41,8 @@ interface Conversation {
 interface ConversationSummary {
   uuid: string;
   name?: string;
+  model?: string;
+  created_at?: string;
   updated_at?: string;
   is_starred?: boolean;
 }
@@ -47,6 +52,32 @@ interface Organization {
 }
 
 const CONCURRENCY = 4;
+
+/** ---------- Settings ---------- */
+type Format = "md" | "json";
+interface Settings {
+  format: Format;
+  frontmatter: boolean;
+  messageTimestamps: boolean;
+}
+
+const SETTINGS_KEY = "cce_settings";
+const DEFAULT_SETTINGS: Settings = {
+  format: "md",
+  frontmatter: true,
+  messageTimestamps: false,
+};
+
+function loadSettings(): Settings {
+  try {
+    const raw = GM_getValue<Partial<Settings>>(SETTINGS_KEY, {});
+    return { ...DEFAULT_SETTINGS, ...raw };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+let settings: Settings = loadSettings();
 
 /** ---------- Conversation id from URL ---------- */
 function getConversationId(): string | null {
@@ -119,11 +150,79 @@ function roleLabel(sender: string | undefined): string {
   return sender === "human" ? "## 👤 User" : "## 🤖 Claude";
 }
 
-function toMarkdown(conv: Conversation, chatId: string): string {
+interface ConvMeta {
+  model?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+function resolveMeta(
+  conv: Conversation,
+  summary?: ConversationSummary,
+): ConvMeta {
+  return {
+    model: conv.model ?? summary?.model,
+    createdAt: conv.created_at ?? summary?.created_at,
+    updatedAt: conv.updated_at ?? summary?.updated_at,
+  };
+}
+
+// Always double-quote — valid YAML for any string (URLs, colons, unicode).
+function yamlStr(v: string): string {
+  return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+// "2026-07-11T08:40:00Z" -> "2026-07-11 08:40"
+function fmtTime(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const m = iso.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return m ? `${m[1]} ${m[2]}` : null;
+}
+
+function frontmatterBlock(
+  title: string,
+  chatId: string,
+  meta: ConvMeta,
+): string {
+  const now = new Date();
+  const lines = [
+    "---",
+    `title: ${yamlStr(title)}`,
+    `source: ${yamlStr(`https://claude.ai/chat/${chatId}`)}`,
+  ];
+  if (meta.model) lines.push(`model: ${yamlStr(meta.model)}`);
+  if (meta.createdAt) lines.push(`create_time: ${yamlStr(meta.createdAt)}`);
+  if (meta.updatedAt) lines.push(`update_time: ${yamlStr(meta.updatedAt)}`);
+  lines.push(
+    `date: ${now.toISOString().slice(0, 10)}`,
+    `timestamp: ${yamlStr(now.toISOString())}`,
+    "---",
+    "",
+  );
+  return lines.join("\n");
+}
+
+function roleHeader(
+  sender: string | undefined,
+  createdAt: string | undefined,
+  withTime: boolean,
+): string {
+  const base = roleLabel(sender);
+  if (withTime) {
+    const t = fmtTime(createdAt);
+    if (t) return `${base} · ${t}`;
+  }
+  return base;
+}
+
+function toMarkdown(
+  conv: Conversation,
+  chatId: string,
+  opts: { frontmatter: boolean; messageTimestamps: boolean; meta: ConvMeta },
+): string {
   const messages = conv.chat_messages ?? conv.messages ?? [];
   const title = (conv.name ?? "").trim() || "Claude conversation";
   const convUrl = `https://claude.ai/chat/${chatId}`;
-  const exportedAt = new Date().toISOString();
 
   const turns: string[] = [];
   let rendered = 0;
@@ -131,18 +230,25 @@ function toMarkdown(conv: Conversation, chatId: string): string {
     const body = extractText(msg);
     if (!body) continue;
     rendered++;
-    turns.push(roleLabel(msg.sender), "", body, "");
+    turns.push(
+      roleHeader(msg.sender, msg.created_at, opts.messageTimestamps),
+      "",
+      body,
+      "",
+    );
   }
 
-  const header: string[] = [
-    `# ${title}`,
-    "",
-    `> Exported from [Claude.ai](${convUrl})`,
-    `> ${rendered} messages · ${exportedAt}`,
-    "",
-    "---",
-    "",
-  ];
+  const header: string[] = opts.frontmatter
+    ? [frontmatterBlock(title, chatId, opts.meta), `# ${title}`, ""]
+    : [
+        `# ${title}`,
+        "",
+        `> Exported from [Claude.ai](${convUrl})`,
+        `> ${rendered} messages · ${new Date().toISOString()}`,
+        "",
+        "---",
+        "",
+      ];
 
   return header.concat(turns).join("\n");
 }
@@ -314,7 +420,11 @@ async function exportCurrentConversation(): Promise<void> {
   const orgId = await getOrgId();
   const conv = await fetchConversation(orgId, chatId);
   const title = (conv.name ?? "").trim() || "Claude conversation";
-  const markdown = toMarkdown(conv, chatId);
+  const markdown = toMarkdown(conv, chatId, {
+    frontmatter: settings.frontmatter,
+    messageTimestamps: settings.messageTimestamps,
+    meta: resolveMeta(conv),
+  });
   const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
   downloadBlob(`${sanitizeFilename(title)}.md`, blob);
 }
@@ -332,7 +442,12 @@ async function exportAllConversations(
     async (c) => {
       try {
         const conv = await fetchConversation(orgId, c.uuid);
-        return { summary: c, markdown: toMarkdown(conv, c.uuid), ok: true };
+        const markdown = toMarkdown(conv, c.uuid, {
+          frontmatter: settings.frontmatter,
+          messageTimestamps: settings.messageTimestamps,
+          meta: resolveMeta(conv, c),
+        });
+        return { summary: c, markdown, ok: true };
       } catch (err) {
         console.error("[claude-chat-exporter] skip", c.uuid, err);
         return { summary: c, markdown: "", ok: false };
