@@ -248,6 +248,32 @@ async function testExportAllJson() {
 }
 await testExportAllJson();
 
+async function testSettingsPanel() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: "/new",
+    settings: undefined,
+    fetchImpl: () => {
+      throw new Error("no fetch");
+    },
+  });
+  const cfg = s.allEls.find((e) => e.id === "__claude_export_cfg_btn");
+  check("gear button mounted", !!cfg);
+  const jsonCtl = s.allEls.find((e) => e.id === "__cce_fmt_json");
+  check("json control exists", !!jsonCtl);
+  jsonCtl.checked = true;
+  jsonCtl._on.change?.();
+  check("selecting json persists", s.gmStore.cce_settings.format === "json");
+  const tsCtl = s.allEls.find((e) => e.id === "__cce_timestamps");
+  tsCtl.checked = true;
+  tsCtl._on.change?.();
+  check(
+    "toggling timestamps persists",
+    s.gmStore.cce_settings.messageTimestamps === true,
+  );
+}
+await testSettingsPanel();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
