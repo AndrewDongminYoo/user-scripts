@@ -20,6 +20,18 @@ importers:
         specifier: ^25.9.5
         version: 25.9.5
 
+  claude-chat-exporter:
+    devDependencies:
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^7.3.5
+        version: 7.3.6(@types/node@25.9.5)
+      vite-plugin-monkey:
+        specifier: ^7.1.9
+        version: 7.1.9(postcss@8.5.15)(vite@7.3.6(@types/node@25.9.5))
+
   wanted-applied-marker:
     devDependencies:
       '@types/greasemonkey':
