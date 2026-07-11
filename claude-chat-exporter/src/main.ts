@@ -166,6 +166,18 @@ async function exportCurrentConversation(): Promise<void> {
 const BTN_ID = "__claude_export_btn";
 const DEFAULT_LABEL = "⬇ Export MD";
 
+// GM_addStyle both styles the button and, as a real @grant, forces Tampermonkey
+// into its sandboxed world so the script is exempt from claude.ai's CSP.
+GM_addStyle(`
+  #${BTN_ID} {
+    position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
+    padding: 8px 14px; border-radius: 999px; border: none;
+    background: #d97757; color: #fff; font-size: 13px; font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); cursor: pointer;
+  }
+  #${BTN_ID}:disabled { opacity: 0.6; cursor: default; }
+`);
+
 function setButtonState(
   btn: HTMLButtonElement,
   label: string,
@@ -173,8 +185,6 @@ function setButtonState(
 ): void {
   btn.textContent = label;
   btn.disabled = disabled;
-  btn.style.opacity = disabled ? "0.6" : "1";
-  btn.style.cursor = disabled ? "default" : "pointer";
 }
 
 function mountButton(): void {
@@ -184,21 +194,6 @@ function mountButton(): void {
   btn.id = BTN_ID;
   btn.type = "button";
   btn.textContent = DEFAULT_LABEL;
-  Object.assign(btn.style, {
-    position: "fixed",
-    bottom: "20px",
-    right: "20px",
-    zIndex: "2147483647",
-    padding: "8px 14px",
-    borderRadius: "999px",
-    border: "none",
-    background: "#d97757",
-    color: "#fff",
-    fontSize: "13px",
-    fontWeight: "600",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-    cursor: "pointer",
-  } as Partial<CSSStyleDeclaration>);
 
   btn.addEventListener("click", () => {
     void (async (): Promise<void> => {

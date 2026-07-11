@@ -43,10 +43,13 @@ pnpm preview
   cookie with a `GET /api/organizations` fallback.
 - **API seam:** `getOrgId` / `fetchConversation` / `toMarkdown` are isolated so a
   Claude-side API change is a local repair, not a rewrite.
-- **Grant:** `@grant none` (page-context execution) — no GM APIs are used; the file
-  download uses a `Blob` + temporary anchor. This is new precedent for this repo
-  (existing scripts use `GM_getValue`/`GM_setValue`); revisit if a manager needs
-  `GM_download`.
+- **Grant:** `@grant GM_addStyle` (required). claude.ai ships a strict CSP
+  (`script-src 'nonce-…' 'strict-dynamic'`, no `'unsafe-inline'`), so a `@grant none`
+  script — which Tampermonkey injects into the page's main world without a nonce — is
+  blocked by CSP and never runs (no button appears). Declaring a real GM\_\* grant makes
+  Tampermonkey run the script in its sandboxed world, which is exempt from the page
+  CSP. `GM_addStyle` doubles as the button's CSS injector. The file download still uses
+  a `Blob` + temporary anchor, which works in the sandbox.
 - **Scope:** exports the operator's own conversations only. No detection evasion,
   no mass collection, polite single-request fetches.
 
