@@ -274,6 +274,58 @@ async function testSettingsPanel() {
 }
 await testSettingsPanel();
 
+async function testExportAllSnapshotsSettings() {
+  // Deterministic: ONE conversation -> mapPool runs a single worker, so the
+  // order is fetch -> flip -> render. Start md; the panel flips to JSON during
+  // the conversation fetch (after the pre-loop snapshot is captured). The
+  // snapshot must keep the export md-only; reading the live global would emit
+  // a .json entry instead.
+  const list = [{ uuid: "a", name: "A", updated_at: "2026-07-11T00:00:00Z" }];
+  let sandbox;
+  sandbox = makeSandbox({
+    cookieOrg: ORG,
+    pathname: "/new",
+    settings: { format: "md" },
+    fetchImpl: (url) => {
+      const m = url.match(/chat_conversations\/([^?]+)/);
+      if (!m) return jsonRes(list);
+      // Flip inside json() — the last await before the render — so the global
+      // is JSON at the exact moment the (buggy) code would read it, with no
+      // concurrency-ordering ambiguity.
+      return {
+        ok: true,
+        status: 200,
+        json: async () => {
+          const jsonCtl = sandbox.allEls.find((e) => e.id === "__cce_fmt_json");
+          jsonCtl.checked = true;
+          jsonCtl._on.change();
+          return {
+            name: m[1],
+            chat_messages: [
+              { sender: "human", content: [{ type: "text", text: "hi" }] },
+            ],
+          };
+        },
+      };
+    },
+  });
+  const allBtn = sandbox.allEls.find((e) => e.id === "__claude_export_all_btn");
+  allBtn._on.click();
+  const dl = await sandbox.downloaded;
+  const asText = Buffer.concat(
+    dl.blob.parts.map((p) => Buffer.from(p)),
+  ).toString("latin1");
+  check(
+    "global settings did flip mid-export (sanity)",
+    sandbox.gmStore.cce_settings.format === "json",
+  );
+  check(
+    "snapshot kept the entry md (no leak)",
+    asText.includes(".md") && !asText.includes(".json"),
+  );
+}
+await testExportAllSnapshotsSettings();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

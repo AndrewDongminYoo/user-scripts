@@ -504,6 +504,9 @@ async function exportAllConversations(
   const orgId = await getOrgId();
   const list = await fetchConversationList(orgId);
   const enc = new TextEncoder();
+  // Snapshot settings: the panel stays interactive during a long run, so a
+  // mid-export toggle must not mix formats/options within one ZIP.
+  const snapshot = settings;
 
   const results = await mapPool(
     list,
@@ -512,7 +515,7 @@ async function exportAllConversations(
       try {
         const conv = await fetchConversation(orgId, c.uuid);
         const meta = resolveMeta(conv, c);
-        const rendered = renderConversation(conv, c.uuid, meta, settings);
+        const rendered = renderConversation(conv, c.uuid, meta, snapshot);
         return { summary: c, rendered, ok: true };
       } catch (err) {
         console.error("[claude-chat-exporter] skip", c.uuid, err);
