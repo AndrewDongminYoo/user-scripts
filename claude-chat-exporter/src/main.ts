@@ -253,6 +253,59 @@ function toMarkdown(
   return header.concat(turns).join("\n");
 }
 
+interface JsonMessage {
+  role: "user" | "assistant";
+  text: string;
+  created_at: string | null;
+}
+
+function toJSON(conv: Conversation, chatId: string, meta: ConvMeta): string {
+  const messages = conv.chat_messages ?? conv.messages ?? [];
+  const out = {
+    title: (conv.name ?? "").trim() || "Claude conversation",
+    source: `https://claude.ai/chat/${chatId}`,
+    model: meta.model ?? null,
+    create_time: meta.createdAt ?? null,
+    update_time: meta.updatedAt ?? null,
+    exported_at: new Date().toISOString(),
+    messages: [] as JsonMessage[],
+  };
+  for (const msg of messages) {
+    const text = extractText(msg);
+    if (!text) continue;
+    out.messages.push({
+      role: msg.sender === "human" ? "user" : "assistant",
+      text,
+      created_at: msg.created_at ?? null,
+    });
+  }
+  return JSON.stringify(out, null, 2);
+}
+
+function renderConversation(
+  conv: Conversation,
+  chatId: string,
+  meta: ConvMeta,
+  s: Settings,
+): { text: string; extension: string; mime: string } {
+  if (s.format === "json") {
+    return {
+      text: toJSON(conv, chatId, meta),
+      extension: "json",
+      mime: "application/json;charset=utf-8",
+    };
+  }
+  return {
+    text: toMarkdown(conv, chatId, {
+      frontmatter: s.frontmatter,
+      messageTimestamps: s.messageTimestamps,
+      meta,
+    }),
+    extension: "md",
+    mime: "text/markdown;charset=utf-8",
+  };
+}
+
 /** ---------- Filenames ---------- */
 function sanitizeFilename(name: string): string {
   return (
@@ -265,10 +318,18 @@ function sanitizeFilename(name: string): string {
 }
 
 function uniqueName(base: string, used: Set<string>): string {
-  let name = base;
+  if (!used.has(base.toLowerCase())) {
+    used.add(base.toLowerCase());
+    return base;
+  }
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : "";
   let i = 1;
+  let name = `${stem} (${i})${ext}`;
   while (used.has(name.toLowerCase())) {
-    name = base.replace(/\.md$/, "") + ` (${i++}).md`;
+    i++;
+    name = `${stem} (${i})${ext}`;
   }
   used.add(name.toLowerCase());
   return name;
@@ -420,13 +481,17 @@ async function exportCurrentConversation(): Promise<void> {
   const orgId = await getOrgId();
   const conv = await fetchConversation(orgId, chatId);
   const title = (conv.name ?? "").trim() || "Claude conversation";
-  const markdown = toMarkdown(conv, chatId, {
-    frontmatter: settings.frontmatter,
-    messageTimestamps: settings.messageTimestamps,
-    meta: resolveMeta(conv),
-  });
-  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-  downloadBlob(`${sanitizeFilename(title)}.md`, blob);
+  const meta = resolveMeta(conv);
+  const { text, extension, mime } = renderConversation(
+    conv,
+    chatId,
+    meta,
+    settings,
+  );
+  downloadBlob(
+    `${sanitizeFilename(title)}.${extension}`,
+    new Blob([text], { type: mime }),
+  );
 }
 
 async function exportAllConversations(
@@ -442,15 +507,12 @@ async function exportAllConversations(
     async (c) => {
       try {
         const conv = await fetchConversation(orgId, c.uuid);
-        const markdown = toMarkdown(conv, c.uuid, {
-          frontmatter: settings.frontmatter,
-          messageTimestamps: settings.messageTimestamps,
-          meta: resolveMeta(conv, c),
-        });
-        return { summary: c, markdown, ok: true };
+        const meta = resolveMeta(conv, c);
+        const rendered = renderConversation(conv, c.uuid, meta, settings);
+        return { summary: c, rendered, ok: true };
       } catch (err) {
         console.error("[claude-chat-exporter] skip", c.uuid, err);
-        return { summary: c, markdown: "", ok: false };
+        return { summary: c, rendered: null, ok: false };
       }
     },
     onProgress,
@@ -460,7 +522,7 @@ async function exportAllConversations(
   const files: ZipEntry[] = [];
   let failed = 0;
   for (const r of results) {
-    if (!r.ok) {
+    if (!r.ok || !r.rendered) {
       failed++;
       continue;
     }
@@ -468,8 +530,12 @@ async function exportAllConversations(
     const title = sanitizeFilename(
       (r.summary.name ?? "").trim() || "conversation",
     );
-    const base = (datePrefix ? `${datePrefix} ` : "") + title + ".md";
-    files.push({ name: uniqueName(base, used), data: enc.encode(r.markdown) });
+    const base =
+      (datePrefix ? `${datePrefix} ` : "") + title + "." + r.rendered.extension;
+    files.push({
+      name: uniqueName(base, used),
+      data: enc.encode(r.rendered.text),
+    });
   }
   if (failed > 0) {
     files.push({
