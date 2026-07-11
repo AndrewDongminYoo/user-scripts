@@ -1,2 +1,2 @@
-# All known vulnerabilities are addressed via pnpm.overrides in package.json.
+# All known vulnerabilities are addressed via the `overrides` block in pnpm-workspace.yaml.
 # No ignored vulns remain — patches exist for every reported CVE.
