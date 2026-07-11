@@ -16,7 +16,10 @@ export default defineConfig({
         author: "Dongmin, Yu",
         match: ["https://claude.ai/*"],
         "run-at": "document-idle",
-        grant: "none",
+        // A real GM_* grant forces Tampermonkey to run in its sandboxed world,
+        // which is exempt from claude.ai's strict CSP. With `@grant none` the
+        // script is injected into the page and blocked by script-src.
+        grant: ["GM_addStyle"],
       },
     }),
   ],
