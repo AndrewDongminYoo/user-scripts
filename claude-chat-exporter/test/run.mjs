@@ -178,6 +178,76 @@ async function testMarkdownFrontmatterAndTimestamps() {
 }
 await testMarkdownFrontmatterAndTimestamps();
 
+async function testJsonOutput() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) => {
+      if (url.includes("/chat_conversations/"))
+        return jsonRes({ ...detail, model: "claude-opus-4" });
+      throw new Error("unexpected " + url);
+    },
+  });
+  const btn = s.allEls.find((e) => e.id === "__claude_export_btn");
+  btn._on.click();
+  const dl = await s.downloaded;
+  check("json extension", dl.name.endsWith(".json"));
+  const obj = JSON.parse(String(dl.blob.parts[0]));
+  check("json title", obj.title === "Hello: World");
+  check("json model", obj.model === "claude-opus-4");
+  check("json first role user", obj.messages[0].role === "user");
+  check("json second role assistant", obj.messages[1].role === "assistant");
+  check("json message text", obj.messages[0].text === "Hi");
+}
+await testJsonOutput();
+
+async function testExportAllJson() {
+  const list = [
+    {
+      uuid: "id1",
+      name: "Alpha",
+      updated_at: "2026-07-11T00:00:00Z",
+      model: "claude-opus-4",
+    },
+    {
+      uuid: "id2",
+      name: "Alpha",
+      updated_at: "2026-07-11T00:00:00Z",
+      model: "claude-opus-4",
+    },
+  ];
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: "/new",
+    settings: { format: "json" },
+    fetchImpl: (url) => {
+      const m = url.match(/chat_conversations\/([^?]+)/);
+      if (m)
+        return jsonRes({
+          name: m[1],
+          chat_messages: [
+            { sender: "human", content: [{ type: "text", text: "hi" }] },
+          ],
+        });
+      return jsonRes(list);
+    },
+  });
+  const allBtn = s.allEls.find((e) => e.id === "__claude_export_all_btn");
+  allBtn._on.click();
+  const dl = await s.downloaded;
+  check("zip filename", dl.name.endsWith(".zip"));
+  const bytes = Buffer.concat(dl.blob.parts.map((p) => Buffer.from(p)));
+  const asText = bytes.toString("latin1");
+  check("zip contains .json entries", asText.includes(".json"));
+  check("zip has no .md entries", !asText.includes(".md"));
+  check("zip dedups same date+name", asText.includes("Alpha (1).json"));
+  // Persist for the manual ditto spot-check.
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(new URL("./_all.zip", import.meta.url), bytes);
+}
+await testExportAllJson();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
