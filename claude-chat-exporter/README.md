@@ -10,6 +10,8 @@ Claude.ai 대화 페이지에서 현재 대화를 **Markdown 파일로 내려받
   - `⬇ Export All` — 계정의 모든 대화를 대화별 `.md`로 만들어 하나의 `.zip`으로 다운로드
 - Claude 웹앱이 사용하는 것과 동일한 same-origin API로 대화 내용을 읽음 (로그인 세션의 쿠키 사용, 별도 인증 없음)
 - 전체 내보내기는 동시 요청 4개로 제한(예의 있는 호출)하고 진행률을 버튼에 표시
+- ⚙️ 설정 패널: 출력 포맷(Markdown/JSON), frontmatter, 메시지별 타임스탬프를 선택 (설정은 저장됨)
+- JSON 출력은 `{ title, source, model, create_time, update_time, exported_at, messages[] }` 정규화 스키마
 - 본인 계정의 대화만 대상으로 함
 
 ## 동작 환경

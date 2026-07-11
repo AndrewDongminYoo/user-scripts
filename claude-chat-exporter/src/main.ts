@@ -31,6 +31,9 @@ interface ChatMessage {
 interface Conversation {
   uuid?: string;
   name?: string;
+  model?: string;
+  created_at?: string;
+  updated_at?: string;
   chat_messages?: ChatMessage[];
   messages?: ChatMessage[];
 }
@@ -38,6 +41,8 @@ interface Conversation {
 interface ConversationSummary {
   uuid: string;
   name?: string;
+  model?: string;
+  created_at?: string;
   updated_at?: string;
   is_starred?: boolean;
 }
@@ -47,6 +52,36 @@ interface Organization {
 }
 
 const CONCURRENCY = 4;
+
+/** ---------- Settings ---------- */
+type Format = "md" | "json";
+interface Settings {
+  format: Format;
+  frontmatter: boolean;
+  messageTimestamps: boolean;
+}
+
+const SETTINGS_KEY = "cce_settings";
+const DEFAULT_SETTINGS: Settings = {
+  format: "md",
+  frontmatter: true,
+  messageTimestamps: false,
+};
+
+function loadSettings(): Settings {
+  try {
+    const raw = GM_getValue<Partial<Settings>>(SETTINGS_KEY, {});
+    return { ...DEFAULT_SETTINGS, ...raw };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings(s: Settings): void {
+  GM_setValue(SETTINGS_KEY, s);
+}
+
+let settings: Settings = loadSettings();
 
 /** ---------- Conversation id from URL ---------- */
 function getConversationId(): string | null {
@@ -119,11 +154,79 @@ function roleLabel(sender: string | undefined): string {
   return sender === "human" ? "## 👤 User" : "## 🤖 Claude";
 }
 
-function toMarkdown(conv: Conversation, chatId: string): string {
+interface ConvMeta {
+  model?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+function resolveMeta(
+  conv: Conversation,
+  summary?: ConversationSummary,
+): ConvMeta {
+  return {
+    model: conv.model ?? summary?.model,
+    createdAt: conv.created_at ?? summary?.created_at,
+    updatedAt: conv.updated_at ?? summary?.updated_at,
+  };
+}
+
+// Always double-quote — valid YAML for any string (URLs, colons, unicode).
+function yamlStr(v: string): string {
+  return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+// "2026-07-11T08:40:00Z" -> "2026-07-11 08:40"
+function fmtTime(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const m = iso.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return m ? `${m[1]} ${m[2]}` : null;
+}
+
+function frontmatterBlock(
+  title: string,
+  chatId: string,
+  meta: ConvMeta,
+): string {
+  const now = new Date();
+  const lines = [
+    "---",
+    `title: ${yamlStr(title)}`,
+    `source: ${yamlStr(`https://claude.ai/chat/${chatId}`)}`,
+  ];
+  if (meta.model) lines.push(`model: ${yamlStr(meta.model)}`);
+  if (meta.createdAt) lines.push(`create_time: ${yamlStr(meta.createdAt)}`);
+  if (meta.updatedAt) lines.push(`update_time: ${yamlStr(meta.updatedAt)}`);
+  lines.push(
+    `date: ${now.toISOString().slice(0, 10)}`,
+    `timestamp: ${yamlStr(now.toISOString())}`,
+    "---",
+    "",
+  );
+  return lines.join("\n");
+}
+
+function roleHeader(
+  sender: string | undefined,
+  createdAt: string | undefined,
+  withTime: boolean,
+): string {
+  const base = roleLabel(sender);
+  if (withTime) {
+    const t = fmtTime(createdAt);
+    if (t) return `${base} · ${t}`;
+  }
+  return base;
+}
+
+function toMarkdown(
+  conv: Conversation,
+  chatId: string,
+  opts: { frontmatter: boolean; messageTimestamps: boolean; meta: ConvMeta },
+): string {
   const messages = conv.chat_messages ?? conv.messages ?? [];
   const title = (conv.name ?? "").trim() || "Claude conversation";
   const convUrl = `https://claude.ai/chat/${chatId}`;
-  const exportedAt = new Date().toISOString();
 
   const turns: string[] = [];
   let rendered = 0;
@@ -131,20 +234,80 @@ function toMarkdown(conv: Conversation, chatId: string): string {
     const body = extractText(msg);
     if (!body) continue;
     rendered++;
-    turns.push(roleLabel(msg.sender), "", body, "");
+    turns.push(
+      roleHeader(msg.sender, msg.created_at, opts.messageTimestamps),
+      "",
+      body,
+      "",
+    );
   }
 
-  const header: string[] = [
-    `# ${title}`,
-    "",
-    `> Exported from [Claude.ai](${convUrl})`,
-    `> ${rendered} messages · ${exportedAt}`,
-    "",
-    "---",
-    "",
-  ];
+  const header: string[] = opts.frontmatter
+    ? [frontmatterBlock(title, chatId, opts.meta), `# ${title}`, ""]
+    : [
+        `# ${title}`,
+        "",
+        `> Exported from [Claude.ai](${convUrl})`,
+        `> ${rendered} messages · ${new Date().toISOString()}`,
+        "",
+        "---",
+        "",
+      ];
 
   return header.concat(turns).join("\n");
+}
+
+interface JsonMessage {
+  role: "user" | "assistant";
+  text: string;
+  created_at: string | null;
+}
+
+function toJSON(conv: Conversation, chatId: string, meta: ConvMeta): string {
+  const messages = conv.chat_messages ?? conv.messages ?? [];
+  const out = {
+    title: (conv.name ?? "").trim() || "Claude conversation",
+    source: `https://claude.ai/chat/${chatId}`,
+    model: meta.model ?? null,
+    create_time: meta.createdAt ?? null,
+    update_time: meta.updatedAt ?? null,
+    exported_at: new Date().toISOString(),
+    messages: [] as JsonMessage[],
+  };
+  for (const msg of messages) {
+    const text = extractText(msg);
+    if (!text) continue;
+    out.messages.push({
+      role: msg.sender === "human" ? "user" : "assistant",
+      text,
+      created_at: msg.created_at ?? null,
+    });
+  }
+  return JSON.stringify(out, null, 2);
+}
+
+function renderConversation(
+  conv: Conversation,
+  chatId: string,
+  meta: ConvMeta,
+  s: Settings,
+): { text: string; extension: string; mime: string } {
+  if (s.format === "json") {
+    return {
+      text: toJSON(conv, chatId, meta),
+      extension: "json",
+      mime: "application/json;charset=utf-8",
+    };
+  }
+  return {
+    text: toMarkdown(conv, chatId, {
+      frontmatter: s.frontmatter,
+      messageTimestamps: s.messageTimestamps,
+      meta,
+    }),
+    extension: "md",
+    mime: "text/markdown;charset=utf-8",
+  };
 }
 
 /** ---------- Filenames ---------- */
@@ -159,10 +322,18 @@ function sanitizeFilename(name: string): string {
 }
 
 function uniqueName(base: string, used: Set<string>): string {
-  let name = base;
+  if (!used.has(base.toLowerCase())) {
+    used.add(base.toLowerCase());
+    return base;
+  }
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : "";
   let i = 1;
+  let name = `${stem} (${i})${ext}`;
   while (used.has(name.toLowerCase())) {
-    name = base.replace(/\.md$/, "") + ` (${i++}).md`;
+    i++;
+    name = `${stem} (${i})${ext}`;
   }
   used.add(name.toLowerCase());
   return name;
@@ -314,9 +485,17 @@ async function exportCurrentConversation(): Promise<void> {
   const orgId = await getOrgId();
   const conv = await fetchConversation(orgId, chatId);
   const title = (conv.name ?? "").trim() || "Claude conversation";
-  const markdown = toMarkdown(conv, chatId);
-  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-  downloadBlob(`${sanitizeFilename(title)}.md`, blob);
+  const meta = resolveMeta(conv);
+  const { text, extension, mime } = renderConversation(
+    conv,
+    chatId,
+    meta,
+    settings,
+  );
+  downloadBlob(
+    `${sanitizeFilename(title)}.${extension}`,
+    new Blob([text], { type: mime }),
+  );
 }
 
 async function exportAllConversations(
@@ -325,6 +504,9 @@ async function exportAllConversations(
   const orgId = await getOrgId();
   const list = await fetchConversationList(orgId);
   const enc = new TextEncoder();
+  // Snapshot settings: the panel stays interactive during a long run, so a
+  // mid-export toggle must not mix formats/options within one ZIP.
+  const snapshot = settings;
 
   const results = await mapPool(
     list,
@@ -332,10 +514,12 @@ async function exportAllConversations(
     async (c) => {
       try {
         const conv = await fetchConversation(orgId, c.uuid);
-        return { summary: c, markdown: toMarkdown(conv, c.uuid), ok: true };
+        const meta = resolveMeta(conv, c);
+        const rendered = renderConversation(conv, c.uuid, meta, snapshot);
+        return { summary: c, rendered, ok: true };
       } catch (err) {
         console.error("[claude-chat-exporter] skip", c.uuid, err);
-        return { summary: c, markdown: "", ok: false };
+        return { summary: c, rendered: null, ok: false };
       }
     },
     onProgress,
@@ -345,7 +529,7 @@ async function exportAllConversations(
   const files: ZipEntry[] = [];
   let failed = 0;
   for (const r of results) {
-    if (!r.ok) {
+    if (!r.ok || !r.rendered) {
       failed++;
       continue;
     }
@@ -353,8 +537,12 @@ async function exportAllConversations(
     const title = sanitizeFilename(
       (r.summary.name ?? "").trim() || "conversation",
     );
-    const base = (datePrefix ? `${datePrefix} ` : "") + title + ".md";
-    files.push({ name: uniqueName(base, used), data: enc.encode(r.markdown) });
+    const base =
+      (datePrefix ? `${datePrefix} ` : "") + title + "." + r.rendered.extension;
+    files.push({
+      name: uniqueName(base, used),
+      data: enc.encode(r.rendered.text),
+    });
   }
   if (failed > 0) {
     files.push({
@@ -388,6 +576,15 @@ GM_addStyle(`
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); cursor: pointer;
   }
   #${UI_ID} button:disabled { opacity: 0.6; cursor: default; }
+  #${UI_ID} #__claude_export_panel {
+    display: none; flex-direction: column; gap: 6px;
+    background: #2b2b2b; color: #fff; padding: 10px 12px; border-radius: 10px;
+    font-size: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  #${UI_ID} #__claude_export_panel.open { display: flex; }
+  #${UI_ID} #__claude_export_panel label {
+    display: flex; gap: 6px; align-items: center; cursor: pointer;
+  }
 `);
 
 function makeButton(id: string, label: string): HTMLButtonElement {
@@ -420,11 +617,76 @@ function runExport(
   })();
 }
 
+function buildPanel(): HTMLDivElement {
+  const panel = document.createElement("div");
+  panel.id = "__claude_export_panel";
+
+  const fmtMd = document.createElement("input");
+  fmtMd.type = "radio";
+  fmtMd.name = "cce_fmt";
+  fmtMd.id = "__cce_fmt_md";
+  fmtMd.checked = settings.format === "md";
+  const fmtJson = document.createElement("input");
+  fmtJson.type = "radio";
+  fmtJson.name = "cce_fmt";
+  fmtJson.id = "__cce_fmt_json";
+  fmtJson.checked = settings.format === "json";
+  fmtMd.addEventListener("change", () => {
+    if (fmtMd.checked) {
+      settings = { ...settings, format: "md" };
+      saveSettings(settings);
+    }
+  });
+  fmtJson.addEventListener("change", () => {
+    if (fmtJson.checked) {
+      settings = { ...settings, format: "json" };
+      saveSettings(settings);
+    }
+  });
+
+  const fm = document.createElement("input");
+  fm.type = "checkbox";
+  fm.id = "__cce_frontmatter";
+  fm.checked = settings.frontmatter;
+  fm.addEventListener("change", () => {
+    settings = { ...settings, frontmatter: fm.checked };
+    saveSettings(settings);
+  });
+
+  const ts = document.createElement("input");
+  ts.type = "checkbox";
+  ts.id = "__cce_timestamps";
+  ts.checked = settings.messageTimestamps;
+  ts.addEventListener("change", () => {
+    settings = { ...settings, messageTimestamps: ts.checked };
+    saveSettings(settings);
+  });
+
+  const row = (ctrl: HTMLElement, text: string): HTMLLabelElement => {
+    const l = document.createElement("label");
+    l.appendChild(ctrl);
+    l.appendChild(document.createTextNode(text));
+    return l;
+  };
+
+  panel.appendChild(row(fmtMd, "Markdown"));
+  panel.appendChild(row(fmtJson, "JSON"));
+  panel.appendChild(row(fm, "Frontmatter (md)"));
+  panel.appendChild(row(ts, "Message timestamps (md)"));
+  return panel;
+}
+
 function mountUI(): void {
   if (document.getElementById(UI_ID)) return;
 
   const container = document.createElement("div");
   container.id = UI_ID;
+
+  const panel = buildPanel();
+  const cfgBtn = makeButton("__claude_export_cfg_btn", "⚙️");
+  cfgBtn.addEventListener("click", () => {
+    panel.classList.toggle("open");
+  });
 
   const allBtn = makeButton(ALL_ID, ALL_LABEL);
   allBtn.addEventListener("click", () => {
@@ -448,6 +710,8 @@ function mountUI(): void {
     });
   });
 
+  container.appendChild(panel);
+  container.appendChild(cfgBtn);
   container.appendChild(allBtn);
   container.appendChild(oneBtn);
   document.body.appendChild(container);
