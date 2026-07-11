@@ -129,6 +129,55 @@ async function testSingleMarkdownDefault() {
 
 await testSingleMarkdownDefault();
 
+async function testSettingsDefaultsAndPersist() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: "/new",
+    settings: { format: "json" }, // partial -> merged with defaults
+    fetchImpl: () => {
+      throw new Error("no fetch expected");
+    },
+  });
+  check(
+    "partial settings merged (stored format json kept)",
+    s.gmStore.cce_settings.format === "json",
+  );
+}
+await testSettingsDefaultsAndPersist();
+
+async function testMarkdownFrontmatterAndTimestamps() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: true, messageTimestamps: true },
+    fetchImpl: (url) => {
+      if (url.includes("/chat_conversations/"))
+        return jsonRes({
+          ...detail,
+          model: "claude-opus-4",
+          created_at: "2026-07-01T00:00:00Z",
+          updated_at: "2026-07-11T08:41:00Z",
+        });
+      throw new Error("unexpected " + url);
+    },
+  });
+  const btn = s.allEls.find((e) => e.id === "__claude_export_btn");
+  btn._on.click();
+  const text = String((await s.downloaded).blob.parts[0]);
+  check("frontmatter opens", text.startsWith("---\n"));
+  check("frontmatter title quoted", text.includes('title: "Hello: World"'));
+  check("frontmatter model", text.includes('model: "claude-opus-4"'));
+  check(
+    "frontmatter source url",
+    text.includes('source: "https://claude.ai/chat/' + CHAT + '"'),
+  );
+  check(
+    "message timestamp on header",
+    text.includes("## 👤 User · 2026-07-11 08:40"),
+  );
+}
+await testMarkdownFrontmatterAndTimestamps();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
