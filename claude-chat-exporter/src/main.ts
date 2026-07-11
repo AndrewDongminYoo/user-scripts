@@ -77,6 +77,10 @@ function loadSettings(): Settings {
   }
 }
 
+function saveSettings(s: Settings): void {
+  GM_setValue(SETTINGS_KEY, s);
+}
+
 let settings: Settings = loadSettings();
 
 /** ---------- Conversation id from URL ---------- */
@@ -569,6 +573,15 @@ GM_addStyle(`
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); cursor: pointer;
   }
   #${UI_ID} button:disabled { opacity: 0.6; cursor: default; }
+  #${UI_ID} #__claude_export_panel {
+    display: none; flex-direction: column; gap: 6px;
+    background: #2b2b2b; color: #fff; padding: 10px 12px; border-radius: 10px;
+    font-size: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  #${UI_ID} #__claude_export_panel.open { display: flex; }
+  #${UI_ID} #__claude_export_panel label {
+    display: flex; gap: 6px; align-items: center; cursor: pointer;
+  }
 `);
 
 function makeButton(id: string, label: string): HTMLButtonElement {
@@ -601,11 +614,76 @@ function runExport(
   })();
 }
 
+function buildPanel(): HTMLDivElement {
+  const panel = document.createElement("div");
+  panel.id = "__claude_export_panel";
+
+  const fmtMd = document.createElement("input");
+  fmtMd.type = "radio";
+  fmtMd.name = "cce_fmt";
+  fmtMd.id = "__cce_fmt_md";
+  fmtMd.checked = settings.format === "md";
+  const fmtJson = document.createElement("input");
+  fmtJson.type = "radio";
+  fmtJson.name = "cce_fmt";
+  fmtJson.id = "__cce_fmt_json";
+  fmtJson.checked = settings.format === "json";
+  fmtMd.addEventListener("change", () => {
+    if (fmtMd.checked) {
+      settings = { ...settings, format: "md" };
+      saveSettings(settings);
+    }
+  });
+  fmtJson.addEventListener("change", () => {
+    if (fmtJson.checked) {
+      settings = { ...settings, format: "json" };
+      saveSettings(settings);
+    }
+  });
+
+  const fm = document.createElement("input");
+  fm.type = "checkbox";
+  fm.id = "__cce_frontmatter";
+  fm.checked = settings.frontmatter;
+  fm.addEventListener("change", () => {
+    settings = { ...settings, frontmatter: fm.checked };
+    saveSettings(settings);
+  });
+
+  const ts = document.createElement("input");
+  ts.type = "checkbox";
+  ts.id = "__cce_timestamps";
+  ts.checked = settings.messageTimestamps;
+  ts.addEventListener("change", () => {
+    settings = { ...settings, messageTimestamps: ts.checked };
+    saveSettings(settings);
+  });
+
+  const row = (ctrl: HTMLElement, text: string): HTMLLabelElement => {
+    const l = document.createElement("label");
+    l.appendChild(ctrl);
+    l.appendChild(document.createTextNode(text));
+    return l;
+  };
+
+  panel.appendChild(row(fmtMd, "Markdown"));
+  panel.appendChild(row(fmtJson, "JSON"));
+  panel.appendChild(row(fm, "Frontmatter (md)"));
+  panel.appendChild(row(ts, "Message timestamps (md)"));
+  return panel;
+}
+
 function mountUI(): void {
   if (document.getElementById(UI_ID)) return;
 
   const container = document.createElement("div");
   container.id = UI_ID;
+
+  const panel = buildPanel();
+  const cfgBtn = makeButton("__claude_export_cfg_btn", "⚙️");
+  cfgBtn.addEventListener("click", () => {
+    panel.classList.toggle("open");
+  });
 
   const allBtn = makeButton(ALL_ID, ALL_LABEL);
   allBtn.addEventListener("click", () => {
@@ -629,6 +707,8 @@ function mountUI(): void {
     });
   });
 
+  container.appendChild(panel);
+  container.appendChild(cfgBtn);
   container.appendChild(allBtn);
   container.appendChild(oneBtn);
   document.body.appendChild(container);
