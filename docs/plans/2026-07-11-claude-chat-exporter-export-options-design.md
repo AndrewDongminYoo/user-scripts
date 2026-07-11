@@ -1,7 +1,7 @@
 # claude-chat-exporter Export Options Design
 
 **Date**: 2026-07-11
-**Status**: Approved (Not implemented yet)
+**Status**: Completed
 
 ## Goal
 
