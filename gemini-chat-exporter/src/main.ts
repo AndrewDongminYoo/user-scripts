@@ -285,16 +285,11 @@ function expandCollapsed(container: Element): void {
   if (btn) (btn as HTMLElement).click();
 }
 
-function turnKey(prompt: string, ordinal: number): string {
-  // Prompt text + ordinal is stable across re-render; enough to dedupe turns
-  // whether nodes persist or recycle.
-  return `${ordinal}::${prompt.slice(0, 80)}`;
-}
-
-// Long conversations lazy-load older turns into the scroller as it nears the
-// top. Scroll to top repeatedly until the turn count stops growing across two
-// consecutive passes, so scrapeCurrentConversation sees the full history
-// regardless of whether Gemini virtualizes/recycles DOM nodes.
+// Gemini's <infinite-scroller> lazy-loads older turns on upward scroll but
+// does NOT evict rendered nodes (live-verified 2026-07-12: a 4-turn chat
+// overflowing its viewport 91x kept all nodes across scroll). So scrolling
+// to top until the count stabilizes, then a single document-order collect,
+// captures every turn. Assumes no DOM eviction.
 async function ensureAllTurnsLoaded(): Promise<void> {
   const scroller = document.querySelector(SEL.scroller);
   if (!scroller) return;
@@ -321,42 +316,36 @@ async function scrapeCurrentConversation(): Promise<Conversation> {
     document.querySelectorAll(SEL.turn).forEach((c) => expandCollapsed(c));
   }
   await new Promise((r) => setTimeout(r, 300));
-  const byKey = new Map<string, Turn>();
-  let ordinal = 0;
-  const collect = (): void => {
-    document.querySelectorAll(SEL.turn).forEach((c) => {
-      const prompt = (c.querySelector(SEL.queryText)?.textContent ?? "").trim();
-      const responseMarkdown = htmlToMarkdown(
-        c.querySelector(SEL.responseMarkdown),
-      );
-      const thinking = settings.includeThinking
-        ? (c.querySelector(SEL.thinking)?.textContent ?? "").trim()
-        : "";
-      const attachments = settings.includeAttachments
-        ? Array.from(c.querySelectorAll(SEL.attachmentChip))
-            .map((a) => (a.textContent ?? "").trim())
-            .filter(Boolean)
-        : [];
-      if (!prompt && !responseMarkdown && !thinking && !attachments.length)
-        return;
-      const key = turnKey(prompt, ordinal++);
-      if (byKey.has(key)) return;
-      const turn: Turn = {
-        index: byKey.size,
-        prompt,
-        attachments,
-        responseMarkdown,
-      };
-      if (thinking) turn.thinking = thinking;
-      byKey.set(key, turn);
-    });
-  };
-  collect();
+  const turns: Turn[] = [];
+  document.querySelectorAll(SEL.turn).forEach((c) => {
+    const prompt = (c.querySelector(SEL.queryText)?.textContent ?? "").trim();
+    const responseMarkdown = htmlToMarkdown(
+      c.querySelector(SEL.responseMarkdown),
+    );
+    const thinking = settings.includeThinking
+      ? (c.querySelector(SEL.thinking)?.textContent ?? "").trim()
+      : "";
+    const attachments = settings.includeAttachments
+      ? Array.from(c.querySelectorAll(SEL.attachmentChip))
+          .map((a) => (a.textContent ?? "").trim())
+          .filter(Boolean)
+      : [];
+    if (!prompt && !responseMarkdown && !thinking && !attachments.length)
+      return;
+    const turn: Turn = {
+      index: turns.length,
+      prompt,
+      attachments,
+      responseMarkdown,
+    };
+    if (thinking) turn.thinking = thinking;
+    turns.push(turn);
+  });
   return {
     id,
     title: getTitle(),
     url: `https://gemini.google.com/app/${id}`,
-    turns: Array.from(byKey.values()),
+    turns,
   };
 }
 
