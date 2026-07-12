@@ -183,6 +183,23 @@ function isRenderableThinking(block: ContentBlock): boolean {
   return typeof block.thinking === "string" && block.thinking.trim().length > 0;
 }
 
+// Extract readable text from a tool_result's `content` (array of sub-blocks or a string).
+function extractToolResultText(
+  content: ContentBlock[] | string | undefined,
+): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const el of content) {
+    if (typeof el.text === "string" && el.text.trim())
+      parts.push(el.text.trim());
+    else if (el.url) parts.push(el.title ? `${el.title} (${el.url})` : el.url);
+    else if (el.file_path ?? el.name)
+      parts.push((el.file_path ?? el.name) as string);
+  }
+  return parts.join("\n\n").trim();
+}
+
 // Markdown body for one message: attachments first, then blocks in document order.
 function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
   const out: string[] = [];
@@ -196,6 +213,28 @@ function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
         out.push(
           `<details><summary>🧠 Extended thinking</summary>\n\n${body}\n\n</details>`,
         );
+      }
+    } else if (block.type === "tool_use") {
+      if (opts.includeToolCalls) {
+        const input =
+          block.input === undefined ? "" : JSON.stringify(block.input, null, 2);
+        const body = truncate(input, MD_BLOCK_CAP);
+        out.push(
+          `<details><summary>🔧 ${block.name ?? "tool"}</summary>\n\n\`\`\`json\n${body}\n\`\`\`\n\n</details>`,
+        );
+      }
+    } else if (block.type === "tool_result") {
+      if (opts.includeToolCalls) {
+        const body = truncate(
+          extractToolResultText(block.content),
+          MD_BLOCK_CAP,
+        );
+        if (body) {
+          const err = block.is_error ? " · error" : "";
+          out.push(
+            `<details><summary>↳ Result${err}</summary>\n\n${body}\n\n</details>`,
+          );
+        }
       }
     }
   }
@@ -233,6 +272,7 @@ function collectStructured(
   const textParts: string[] = [];
   const thinking: string[] = [];
   const tools: ToolRecord[] = [];
+  let pending = -1; // index of the last tool_use awaiting its result
   for (const block of msg.content ?? []) {
     if (block.type === "text") {
       if (typeof block.text === "string" && block.text.trim())
@@ -240,6 +280,33 @@ function collectStructured(
     } else if (block.type === "thinking") {
       if (opts.includeThinking && isRenderableThinking(block))
         thinking.push((block.thinking as string).trim());
+    } else if (block.type === "tool_use") {
+      if (opts.includeToolCalls) {
+        tools.push({
+          name: block.name ?? "tool",
+          input: block.input ?? null,
+          result: "",
+          is_error: false,
+        });
+        pending = tools.length - 1;
+      }
+    } else if (block.type === "tool_result") {
+      if (opts.includeToolCalls) {
+        const result = extractToolResultText(block.content);
+        if (pending >= 0) {
+          const rec = tools[pending] as ToolRecord;
+          rec.result = result;
+          rec.is_error = block.is_error === true;
+          pending = -1;
+        } else {
+          tools.push({
+            name: block.name ?? "tool",
+            input: null,
+            result,
+            is_error: block.is_error === true,
+          });
+        }
+      }
     }
   }
   let text = textParts.join("\n\n").trim();
