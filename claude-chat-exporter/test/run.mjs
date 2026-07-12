@@ -58,6 +58,10 @@ export function makeSandbox({ cookieOrg, pathname, settings, fetchImpl }) {
       cookie: `lastActiveOrg=${cookieOrg}`,
       documentElement: {},
       getElementById: () => null,
+      // No sidebar in the stub -> mountUI takes the floating-pill fallback path,
+      // which still builds the modal + all action/settings controls into allEls.
+      querySelector: () => null,
+      addEventListener: () => {},
       createElement: el,
       createTextNode: (t) => ({ nodeValue: t }),
       body: { appendChild() {} },
@@ -257,8 +261,8 @@ async function testSettingsPanel() {
       throw new Error("no fetch");
     },
   });
-  const cfg = s.allEls.find((e) => e.id === "__claude_export_cfg_btn");
-  check("gear button mounted", !!cfg);
+  const trigger = s.allEls.find((e) => e.id === "__claude_export_trigger");
+  check("export trigger mounted", !!trigger);
   const jsonCtl = s.allEls.find((e) => e.id === "__cce_fmt_json");
   check("json control exists", !!jsonCtl);
   jsonCtl.checked = true;
