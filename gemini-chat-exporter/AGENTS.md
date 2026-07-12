@@ -4,7 +4,7 @@ Subdirectory guide for `gemini-chat-exporter/`.
 
 ## Purpose
 
-- TypeScript + Vite userscript that exports the current gemini.google.com conversation to Markdown/JSON.
+- TypeScript + Vite userscript that exports gemini.google.com conversations to Markdown/JSON: the currently open one (by scraping the rendered DOM) and **all** of them (Export-All, via the site's own `batchexecute` API using an observe-replay interceptor).
 - Builds `dist/gemini-chat-exporter.user.js` via `vite-plugin-monkey`.
 
 ## Current Layout
@@ -20,8 +20,8 @@ gemini-chat-exporter/
 ├── test/
 │   └── run.mjs      # Node vm-sandbox harness against the built dist bundle
 └── src/
-    ├── main.ts      # DOM scrape + HTML->Markdown converter + UI + download
-    └── env.d.ts      # GM_* globals (see Grants note below)
+    ├── main.ts      # DOM scrape + HTML->Markdown + batchexecute observe-replay (Export-All) + UI + download
+    └── env.d.ts      # GM_* + unsafeWindow globals (see Grants note below)
 ```
 
 ## What To Change Here
@@ -44,15 +44,56 @@ pnpm test
 
 ## Design Notes
 
-- **DOM-scraping rationale:** Gemini exposes no clean, stable API for reading a
-  conversation. Its internal RPC (`batchexecute`) is per-build obfuscated and
-  fragile to depend on, so the rendered DOM's semantic Angular custom elements
-  (`user-query`, `model-response`, `conversation-container`, …) are the stable
-  extraction seam instead. This is also why Export-All — which would need to
-  _enumerate_ conversations, not just read the currently open one — is
-  deferred to v1.1 rather than shipped in v1 on top of a fragile RPC; see the
-  blueprint at
+- **DOM-scraping rationale (single-conversation export):** Gemini exposes no
+  clean, stable API for reading a conversation, so the **currently open**
+  conversation is exported by scraping the rendered DOM's semantic Angular
+  custom elements (`user-query`, `model-response`, `conversation-container`,
+  …) — the stable extraction seam. Export-All cannot use the DOM (it would
+  need to _enumerate_ and _open_ every conversation, and every DOM-navigation
+  path was live-verified as blocked), so it uses the `batchexecute` API
+  instead — see the next note and the blueprint at
   `../docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`.
+- **Export-All via `batchexecute` observe-replay (the fragile seam):**
+  Gemini's data API is `batchexecute` over XHR; its `bl` build label rotates
+  per deploy (and `rpcids` can rotate too), so we never reconstruct a request.
+  A `document-start`
+  interceptor (`bxInstallInterceptor`) patches **`unsafeWindow`'s**
+  XMLHttpRequest/fetch — the page (main) world where Angular's XHR and the
+  auth cookies live; a sandbox-only patch misses that traffic — and records
+  the app's own batchexecute calls (`bxTemplates`, keyed by rpcid). Export-All
+  **replays** a learned template with only the conversation id and `_reqid`
+  changed (`bxReplay`): `_reqid` is a global monotonic counter continued at
+  the observed `+100000` step, and the captured `at` XSRF token is reused
+  verbatim (no `WIZ_global_data` reading needed). Responses use the
+  `)]}'`-prefixed, newline-length-prefixed envelope; `bxDecode` splits on
+  newlines and `JSON.parse`s each `[`-line (the byte-length prefix is unsafe
+  to slice against a UTF-16 string with multibyte content). Two RPCs, both
+  live-verified 2026-07-12:
+  - **List = `MaZiqc`** (`listAllConversations`): `payload[2]` = conversation
+    entries, entry`[0]` = `"c_<id>"`, entry`[1]` = title; `payload[1]` = the
+    next-page cursor (empty/absent → last page), passed back as `args[1]` (a
+    null cursor starts at page 1). Paged from the start, deduped by id.
+  - **Content = `hNvQHb`** (`fetchConversationContent` /
+    `parseContentPayload`): `payload[0]` = per-turn array; per turn, prompt =
+    `turn[2][0][0]`, response Markdown source = `turn[3][0][0][1][0]`.
+    `args[1]` is a turn page-size cap (we request a large size); `payload[1]`
+    non-null means the conversation had **more** turns than fetched, surfaced
+    as a per-conversation truncation flag rather than silently dropped. Turns
+    whose shape matches neither prompt nor response are skipped and counted;
+    image-generation turns keep the prompt with a placeholder response.
+  - Replays are non-deterministic under bursts (empty/partial responses), so
+    both list paging and the export orchestrator fetch **one at a time with a
+    small delay**, retrying once on an empty decode. Results are packed into
+    the dependency-free store-only ZIP (ported verbatim from
+    `claude-chat-exporter`). This whole seam is the one build-coupled part.
+    What self-heals: `bl` and the per-session tokens (`at`, `f.sid`, `_reqid`),
+    because the whole template is re-learned from live traffic each session.
+    What does **not**: the two rpcid literals (`MaZiqc`/`hNvQHb`, named
+    constants `LIST_RPCID`/`CONTENT_RPCID`) and the payload paths are **pinned,
+    not learned** — if Google rotates an rpcid or changes the response
+    structure, Export-All fails ("not armed" for content) and needs a one-line
+    manual refresh. The arming path logs the currently-learned rpcids to the
+    console so the new literal is discoverable, not a dead-end.
 - **The `SEL` seam:** every selector Gemini's DOM depends on is centralized in
   the `SEL` object at the top of `src/main.ts` (`turn`, `userQuery`,
   `queryText`, `attachmentChip`, `modelResponse`, `responseMarkdown`,
@@ -82,12 +123,23 @@ pnpm test
   `setAttribute`, never `innerHTML`. Any future scraped or generated content
   going into the DOM must follow the same rule — `textContent` or
   `createElement`/`createElementNS`, never `innerHTML`, on this site.
-- **CSP / grants:** `@grant GM_addStyle, GM_getValue, GM_setValue`.
-  `GM_addStyle` doubles as the button/modal CSS injector and, as a real
-  `GM_*` grant, forces Tampermonkey into its sandboxed world — which is
-  exempt from Gemini's page CSP (a `@grant none` script runs in the page's
-  main world and would be blocked). The file download uses a `Blob` +
+- **CSP / grants:** `@grant GM_addStyle, GM_getValue, GM_setValue,
+unsafeWindow`; `@run-at document-start`. `GM_addStyle` doubles as the
+  button/modal CSS injector and, as a real `GM_*` grant, forces Tampermonkey
+  into its sandboxed world — which is exempt from Gemini's page CSP (a
+  `@grant none` script runs in the page's main world and would be blocked).
+  `unsafeWindow` lets the interceptor patch the **page world's** XHR/fetch (see
+  the Export-All note). `document-start` is required so the interceptor is live
+  before Angular boots and fires the list `batchexecute` call; the UI mount is
+  deferred to `<body>` readiness (`initUI`). The file download uses a `Blob` +
   temporary anchor, which works in the sandbox.
+- **"Open a chat once to arm":** Export-All replays templates learned from the
+  app's own traffic. The list template is learned at boot; the content
+  (`hNvQHb`) template is learned the first time any conversation is opened. If
+  the content template is not yet learned, the Export-All button prompts the
+  user to open any chat once. (Dev tip: `pnpm dev`'s HMR loader is blocked by
+  Gemini's CSP — to test a build in Tampermonkey, install the self-contained
+  `dist/gemini-chat-exporter.user.js` instead of the dev loader.)
 - **Settings (`gce_settings`):** the ⚙️ modal persists
   `{ format, frontmatter, includeThinking, includeAttachments }` via
   `GM_getValue`/`GM_setValue`. `frontmatter` is Markdown-only and dimmed
@@ -106,10 +158,12 @@ pnpm test
   Escape-key listener that closes the modal is bound at most once (guarded by
   a module-level `escBound` flag) so repeated `mountUI` rebuilds don't
   accumulate duplicate `keydown` listeners.
-- **Out of scope (v1):** Export-All (deferred to v1.1, see the blueprint doc
-  above), Deep Research immersive reports (different DOM structure from a
-  normal conversation), and uploaded image bytes (attachments capture file
-  names only, via `SEL.attachmentChip`).
+- **Out of scope:** Deep Research immersive reports (different DOM structure
+  from a normal conversation), and uploaded image bytes (attachments capture
+  file names only, via `SEL.attachmentChip`). The Export-All content path
+  (API) currently omits extended-thinking and attachment extraction that the
+  single-conversation DOM path captures — a possible future enhancement
+  (prompt attachment URLs sit at `turn[2][0][5]`).
 - **Scope:** exports the operator's own conversations only. No detection
   evasion, no mass collection.
 

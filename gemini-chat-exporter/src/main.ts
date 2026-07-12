@@ -86,6 +86,362 @@ function yamlStr(v: string): string {
   return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+/** ---------- Batchexecute transport (observe-replay) ---------- */
+// Gemini's data API is `batchexecute` over XHR — there is no clean REST
+// endpoint. We NEVER reconstruct a request: an interceptor records the app's
+// own batchexecute calls (the full URL incl. rotating `rpcids`/`bl`/`f.sid`,
+// the request headers, and the `f.req` body which already carries the session
+// `at` XSRF token), then Export-All REPLAYS a stored template with only the
+// conversation id and `_reqid` changed. Because the replay reuses the app's
+// real, current request material, it self-heals across Gemini build rotation —
+// only a payload-structure change needs a parser refresh. (Verified live
+// 2026-07-12: a same-origin credentialed replay returns the full payload.)
+
+interface BxTemplate {
+  url: string;
+  headers: Record<string, string>;
+  // "f.req=<url-encoded outer>&at=<token>" — replayed with only the args swapped.
+  body: string;
+}
+
+// Latest APP-originated template per rpcid. Our own replays go through the
+// saved original fetch (below) so they are never recorded as templates.
+const bxTemplates = new Map<string, BxTemplate>();
+
+// `_reqid` is a global monotonic counter in the app: every batchexecute call
+// increments it by exactly +100000 (offset tied to `f.sid`). Replays MUST
+// continue the sequence — a random `_reqid` yields empty/throttled responses
+// (verified live). We track the highest observed and hand out max + 100000.
+let bxMaxReqid = 0;
+const BX_REQID_STEP = 100000;
+
+// The script runs in Tampermonkey's sandbox (@grant forces it), but Angular's
+// XHR and the auth cookies live in the PAGE world. We must patch the PAGE
+// world's XMLHttpRequest/fetch (via unsafeWindow) to see the app's own
+// batchexecute traffic — a sandbox-only patch can miss it entirely. Fall back
+// to the plain globals when unsafeWindow is unavailable (Node test / @grant
+// none). This is the token-free half of observe-replay: we never read
+// WIZ_global_data; we reuse the captured request (which already carries `at`).
+const bxWin: Window & typeof globalThis =
+  typeof unsafeWindow !== "undefined" && unsafeWindow
+    ? unsafeWindow
+    : (globalThis as Window & typeof globalThis);
+
+// Saved original PAGE fetch: replays use this so the interceptor never records
+// them, and so a page that later re-patches fetch cannot shadow our transport.
+const bxOrigFetch =
+  typeof bxWin.fetch === "function" ? bxWin.fetch.bind(bxWin) : null;
+
+function bxIsBatch(u: string | null | undefined): u is string {
+  return typeof u === "string" && u.indexOf("/batchexecute") !== -1;
+}
+function bxRpcids(u: string): string | null {
+  try {
+    return new URL(u, location.origin).searchParams.get("rpcids");
+  } catch {
+    return null;
+  }
+}
+function bxNoteReqid(u: string): void {
+  try {
+    const n = Number(new URL(u, location.origin).searchParams.get("_reqid"));
+    if (Number.isFinite(n) && n > bxMaxReqid) bxMaxReqid = n;
+  } catch {
+    /* not a parseable url */
+  }
+}
+function bxNextReqid(): number {
+  bxMaxReqid += BX_REQID_STEP;
+  return bxMaxReqid;
+}
+
+// Record a template from an app-originated batchexecute request. We keep the
+// request body (which contains `at`) verbatim; the response is not stored —
+// replays fetch fresh.
+function bxRecord(
+  url: string,
+  headers: Record<string, string>,
+  body: string | null,
+): void {
+  const rpcids = bxRpcids(url);
+  bxNoteReqid(url);
+  if (!rpcids || typeof body !== "string") return;
+  bxTemplates.set(rpcids, { url, headers, body });
+}
+
+interface XhrMeta {
+  __bxUrl?: string;
+  __bxHeaders?: Record<string, string>;
+}
+
+// Normalize a fetch `HeadersInit` into a plain object (defensive fetch path).
+function bxHeadersToObject(h: HeadersInit | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!h) return out;
+  if (Array.isArray(h)) {
+    for (const [k, v] of h) out[k] = v;
+  } else if (typeof (h as Headers).forEach === "function") {
+    (h as Headers).forEach((v, k) => {
+      out[k] = v;
+    });
+  } else {
+    Object.assign(out, h as Record<string, string>);
+  }
+  return out;
+}
+
+// Install the observe-replay interceptor. All batchexecute traffic is XHR, so
+// XHR is the primary patch; fetch is patched defensively. No-ops when the host
+// lacks XHR/fetch (e.g. the Node test sandbox), so the bundle still loads.
+function bxInstallInterceptor(): void {
+  const PageXHR = bxWin.XMLHttpRequest;
+  if (typeof PageXHR !== "undefined") {
+    const proto = PageXHR.prototype;
+    const open = proto.open;
+    const send = proto.send;
+    const setHeader = proto.setRequestHeader;
+    proto.open = function (
+      this: XMLHttpRequest & XhrMeta,
+      _method: string,
+      url: string | URL,
+    ): void {
+      this.__bxUrl = typeof url === "string" ? url : url.href;
+      this.__bxHeaders = {};
+      // eslint-disable-next-line prefer-rest-params
+      return open.apply(this, arguments as never);
+    };
+    proto.setRequestHeader = function (
+      this: XMLHttpRequest & XhrMeta,
+      name: string,
+      value: string,
+    ): void {
+      if (this.__bxHeaders) this.__bxHeaders[name] = value;
+      return setHeader.call(this, name, value);
+    };
+    proto.send = function (
+      this: XMLHttpRequest & XhrMeta,
+      body?: Document | XMLHttpRequestBodyInit | null,
+    ): void {
+      if (bxIsBatch(this.__bxUrl)) {
+        bxRecord(
+          this.__bxUrl,
+          this.__bxHeaders ?? {},
+          typeof body === "string" ? body : null,
+        );
+      }
+      return send.call(this, body ?? null);
+    };
+  }
+  if (typeof bxWin.fetch === "function" && bxOrigFetch) {
+    bxWin.fetch = function (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : (input as Request).url;
+      if (bxIsBatch(url) && init && typeof init.body === "string") {
+        bxRecord(url, bxHeadersToObject(init.headers), init.body);
+      }
+      return bxOrigFetch(input as RequestInfo, init);
+    };
+  }
+}
+bxInstallInterceptor();
+
+// Decode a batchexecute envelope into its rows. Format: `)]}'` guard, then
+// repeating `<byteLen>\n<jsonChunk>\n`. The byte-length prefix is UNSAFE to
+// slice against a UTF-16 string (multibyte chars overrun), so instead we split
+// on newlines and JSON.parse each line that begins with `[` — the JSON chunks
+// never contain a raw newline (they are escaped as `\n`). (Verified live.)
+function bxDecode(text: string): unknown[] {
+  const rows: unknown[] = [];
+  const body = text.replace(/^\)\]\}'/, "");
+  for (const line of body.split("\n")) {
+    const s = line.trim();
+    if (s[0] !== "[") continue;
+    try {
+      const arr: unknown = JSON.parse(s);
+      if (Array.isArray(arr)) for (const r of arr) rows.push(r);
+    } catch {
+      /* a length-prefix line, not JSON */
+    }
+  }
+  return rows;
+}
+
+// Extract a single RPC's payload: the row `["wrb.fr", rpcid, <jsonString>, ...]`.
+function bxPayload(text: string, rpcid: string): unknown {
+  for (const r of bxDecode(text)) {
+    if (
+      Array.isArray(r) &&
+      r[0] === "wrb.fr" &&
+      r[1] === rpcid &&
+      typeof r[2] === "string"
+    ) {
+      try {
+        return JSON.parse(r[2]);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+// Rebuild a template's `f.req=...&at=...` body, mutating the target rpc's args
+// (the JSON string at `outer[0][<rpc>][1]`). Only the args are touched; `at`
+// and every other field are replayed verbatim.
+function bxBuildBody(
+  templateBody: string,
+  rpcid: string,
+  mutate: (args: unknown[]) => void,
+): string {
+  const atIdx = templateBody.indexOf("&at=");
+  const freqPart = atIdx >= 0 ? templateBody.slice(0, atIdx) : templateBody;
+  const atPart = atIdx >= 0 ? templateBody.slice(atIdx) : "";
+  const outer: unknown = JSON.parse(
+    decodeURIComponent(freqPart.replace(/^f\.req=/, "")),
+  );
+  if (!Array.isArray(outer) || !Array.isArray(outer[0]))
+    throw new Error("unexpected f.req shape");
+  const calls = outer[0] as unknown[];
+  const entry = (calls.find((e) => Array.isArray(e) && e[0] === rpcid) ??
+    calls[0]) as unknown[];
+  if (!Array.isArray(entry) || typeof entry[1] !== "string")
+    throw new Error("unexpected f.req call shape");
+  const args: unknown = JSON.parse(entry[1]);
+  if (!Array.isArray(args)) throw new Error("unexpected args shape");
+  mutate(args);
+  entry[1] = JSON.stringify(args);
+  return "f.req=" + encodeURIComponent(JSON.stringify(outer)) + atPart;
+}
+
+function bxSleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// Replay a learned template with the target rpc's args mutated, returning the
+// decoded payload (or null). Retries once on an empty/undecodable response —
+// rapid replays are non-deterministic and can return an empty body (verified
+// live); a fresh `_reqid` on retry recovers it.
+async function bxReplay(
+  rpcid: string,
+  mutate: (args: unknown[]) => void,
+): Promise<unknown> {
+  const tpl = bxTemplates.get(rpcid);
+  if (!tpl) throw new Error(`batchexecute template not learned: ${rpcid}`);
+  if (!bxOrigFetch) throw new Error("fetch unavailable");
+  const body = bxBuildBody(tpl.body, rpcid, mutate);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const url = new URL(tpl.url, location.origin);
+    url.searchParams.set("_reqid", String(bxNextReqid()));
+    const resp = await bxOrigFetch(url.toString(), {
+      method: "POST",
+      headers: tpl.headers,
+      body,
+      credentials: "include",
+    });
+    const text = await resp.text();
+    const payload = bxPayload(text, rpcid);
+    if (payload != null) return payload;
+    await bxSleep(600);
+  }
+  return null;
+}
+
+/** ---------- Export-All: content parser (hNvQHb -> Conversation) ---------- */
+// `args[1]` is a TURN page-size cap (verified live: size N returns at most N of
+// the conversation's turns). We request more than any real conversation has so
+// short conversations return in a single call. `payload[1]` is a continuation
+// cursor: a non-null value means the conversation has MORE turns than we
+// fetched — i.e. it was truncated — which we surface per-conversation rather
+// than silently dropping turns. (At this page size no real conversation
+// truncates; the cursor is a guard, not a paging driver.)
+const CONTENT_RPCID = "hNvQHb";
+const CONTENT_PAGE_SIZE = 1000;
+
+interface ParsedTurns {
+  turns: Turn[];
+  truncated: boolean;
+  skipped: number;
+}
+
+// Read a nested string leaf by index path; null if any hop is missing or the
+// leaf is not a string. Pinned paths (verified live against real payloads):
+//   prompt   = turn[2][0][0]
+//   response = turn[3][0][0][1][0]   (Markdown source)
+function bxLeafString(root: unknown, path: number[]): string | null {
+  let cur: unknown = root;
+  for (const i of path) {
+    if (!Array.isArray(cur)) return null;
+    cur = cur[i];
+  }
+  return typeof cur === "string" ? cur : null;
+}
+
+// Parse an `hNvQHb` payload into the existing Turn[] shape. `payload[0]` is the
+// per-turn array; each turn is defensively read at the pinned leaf paths, and a
+// turn whose shape matches neither prompt nor response is skipped and counted
+// (never silently dropped).
+function parseContentPayload(payload: unknown): ParsedTurns {
+  const turns: Turn[] = [];
+  let skipped = 0;
+  if (!Array.isArray(payload)) return { turns, truncated: false, skipped };
+  const rawTurns = Array.isArray(payload[0]) ? (payload[0] as unknown[]) : [];
+  const truncated = typeof payload[1] === "string" && payload[1].length > 0;
+  for (const rt of rawTurns) {
+    const prompt = bxLeafString(rt, [2, 0, 0]);
+    const response = bxLeafString(rt, [3, 0, 0, 1, 0]);
+    if (prompt == null && response == null) {
+      skipped++;
+      continue;
+    }
+    turns.push({
+      index: turns.length,
+      prompt: prompt ?? "",
+      attachments: [],
+      // Image-generation turns carry a render tree, not Markdown; keep the
+      // prompt and mark the response rather than dropping the whole turn.
+      responseMarkdown: response ?? "_[non-text response]_",
+    });
+  }
+  return { turns, truncated, skipped };
+}
+
+interface FetchedConversation {
+  conv: Conversation;
+  truncated: boolean;
+  skipped: number;
+}
+
+// Replay the learned content template for one conversation id (swapping only
+// `c_<id>` and bumping the page size). Returns the existing Conversation shape,
+// so toMarkdown/toJSON/renderConversation are reused unchanged.
+async function fetchConversationContent(
+  convId: string,
+  title: string,
+): Promise<FetchedConversation> {
+  const payload = await bxReplay(CONTENT_RPCID, (args) => {
+    args[0] = "c_" + convId;
+    if (typeof args[1] === "number") args[1] = CONTENT_PAGE_SIZE;
+  });
+  const { turns, truncated, skipped } = parseContentPayload(payload);
+  return {
+    conv: {
+      id: convId,
+      title,
+      url: `https://gemini.google.com/app/${convId}`,
+      turns,
+    },
+    truncated,
+    skipped,
+  };
+}
+
 /** ---------- HTML -> Markdown (dependency-free) ---------- */
 const BLOCK_TAGS = new Set([
   "P",
@@ -475,9 +831,269 @@ async function exportCurrentConversation(): Promise<void> {
   );
 }
 
+/** ---------- Store-only ZIP (no dependency) ---------- */
+// Ported verbatim from claude-chat-exporter. Each userscript is a standalone,
+// import-free single file, so this cross-package duplication is the mandated
+// architecture, not a DRY defect.
+const CRC_TABLE = ((): Uint32Array => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++)
+    c = (CRC_TABLE[(c ^ bytes[i]) & 0xff] ?? 0) ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+const u16 = (n: number): number[] => [n & 0xff, (n >>> 8) & 0xff];
+const u32 = (n: number): number[] => [
+  n & 0xff,
+  (n >>> 8) & 0xff,
+  (n >>> 16) & 0xff,
+  (n >>> 24) & 0xff,
+];
+interface ZipEntry {
+  name: string;
+  data: Uint8Array;
+}
+function zipStore(files: ZipEntry[]): Blob {
+  const enc = new TextEncoder();
+  const parts: Array<Uint8Array | number[]> = [];
+  const central: number[] = [];
+  let offset = 0;
+  const dosDate = 0x0021; // 1980-01-01, avoids "invalid date" warnings
+  const dosTime = 0x0000;
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const size = f.data.length;
+    const local: number[] = [
+      ...u32(0x04034b50),
+      ...u16(20),
+      ...u16(0x0800),
+      ...u16(0),
+      ...u16(dosTime),
+      ...u16(dosDate),
+      ...u32(crc),
+      ...u32(size),
+      ...u32(size),
+      ...u16(nameBytes.length),
+      ...u16(0),
+      ...nameBytes,
+    ];
+    parts.push(local, f.data);
+    central.push(
+      ...u32(0x02014b50),
+      ...u16(20),
+      ...u16(20),
+      ...u16(0x0800),
+      ...u16(0),
+      ...u16(dosTime),
+      ...u16(dosDate),
+      ...u32(crc),
+      ...u32(size),
+      ...u32(size),
+      ...u16(nameBytes.length),
+      ...u16(0),
+      ...u16(0),
+      ...u16(0),
+      ...u16(0),
+      ...u32(0),
+      ...u32(offset),
+      ...nameBytes,
+    );
+    offset += local.length + size;
+  }
+  const eocd: number[] = [
+    ...u32(0x06054b50),
+    ...u16(0),
+    ...u16(0),
+    ...u16(files.length),
+    ...u16(files.length),
+    ...u32(central.length),
+    ...u32(offset),
+    ...u16(0),
+  ];
+  const blobParts: BlobPart[] = [];
+  for (const p of parts) blobParts.push(new Uint8Array(p));
+  blobParts.push(new Uint8Array(central), new Uint8Array(eocd));
+  return new Blob(blobParts, { type: "application/zip" });
+}
+function uniqueName(base: string, used: Set<string>): string {
+  if (!used.has(base.toLowerCase())) {
+    used.add(base.toLowerCase());
+    return base;
+  }
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : "";
+  let i = 1;
+  let name = `${stem} (${i})${ext}`;
+  while (used.has(name.toLowerCase())) {
+    i++;
+    name = `${stem} (${i})${ext}`;
+  }
+  used.add(name.toLowerCase());
+  return name;
+}
+
+/** ---------- Export-All: conversation list enumeration ---------- */
+// (Task 3) The full conversation list is served by the `MaZiqc` batchexecute
+// RPC (verified live 2026-07-12): the app pages it at boot to fill the /search
+// list, then filters client-side. The document-start interceptor learns the
+// template; Export-All replays it, paging from the start via the response
+// cursor to enumerate every conversation.
+//
+//   payload[2] = conversation entries; entry[0] = "c_<id>", entry[1] = title.
+//   payload[1] = next-page cursor (empty/absent => last page).
+//   The cursor is passed back as args[1]; a null cursor starts at page 1.
+const LIST_RPCID = "MaZiqc";
+const LIST_PAGE_CAP = 200; // runaway guard (76 convs ≈ 4 pages live)
+const CONV_ID_RE = /^[0-9a-f]{16}$/i;
+
+interface ConvRef {
+  id: string;
+  title: string;
+}
+
+// Parse one MaZiqc page into {refs, cursor}. Defensive: a malformed entry is
+// skipped, and a missing cursor ends pagination.
+function parseListPage(payload: unknown): {
+  refs: ConvRef[];
+  cursor: string | null;
+} {
+  const refs: ConvRef[] = [];
+  let cursor: string | null = null;
+  if (Array.isArray(payload)) {
+    if (typeof payload[1] === "string" && payload[1].length > 0)
+      cursor = payload[1];
+    const entries = Array.isArray(payload[2]) ? (payload[2] as unknown[]) : [];
+    for (const e of entries) {
+      if (!Array.isArray(e)) continue;
+      const rawId = e[0];
+      const title = e[1];
+      if (typeof rawId !== "string" || typeof title !== "string") continue;
+      const id = rawId.replace(/^c_/, "");
+      if (CONV_ID_RE.test(id)) refs.push({ id, title });
+    }
+  }
+  return { refs, cursor };
+}
+
+// Enumerate every conversation by replaying the learned MaZiqc template and
+// paging via the response cursor (args[1]) from the start until exhausted.
+// Deduped by id; paced (replays are non-deterministic under bursts).
+async function listAllConversations(): Promise<ConvRef[]> {
+  if (!bxTemplates.has(LIST_RPCID))
+    throw new Error(
+      "대화 목록을 아직 학습하지 못했습니다. 페이지를 새로고침한 뒤 다시 시도하세요.",
+    );
+  const byId = new Map<string, string>();
+  let cursor: string | null = null;
+  for (let page = 0; page < LIST_PAGE_CAP; page++) {
+    const payload = await bxReplay(LIST_RPCID, (args) => {
+      args[1] = cursor;
+    });
+    // A null payload means the replay came back empty/undecodable even after
+    // bxReplay's retry — a transient fetch failure or an expired template, NOT
+    // a legitimate last page (which is a valid payload with no cursor). Throw
+    // so the user is told to retry, rather than silently truncating the list
+    // (or returning [] and reporting "0 exported") as if enumeration finished.
+    if (payload == null)
+      throw new Error(
+        "대화 목록을 가져오지 못했습니다. 잠시 후 다시 시도하세요.",
+      );
+    const { refs, cursor: next } = parseListPage(payload);
+    for (const r of refs) if (!byId.has(r.id)) byId.set(r.id, r.title);
+    if (!next || refs.length === 0) break;
+    cursor = next;
+    await bxSleep(300);
+  }
+  return [...byId].map(([id, title]) => ({ id, title }));
+}
+
+/** ---------- Export-All: orchestrator ---------- */
+interface ExportAllResult {
+  exported: number;
+  failed: number;
+  truncated: number;
+  skipped: number;
+}
+
+// Build the human summary line from an Export-All result. Kept as a pure
+// function so the skipped/failed/truncated surfacing stays unit-testable
+// without driving the whole batchexecute transport.
+function formatExportSummary(result: ExportAllResult): string {
+  const parts = [`${result.exported} exported`];
+  if (result.failed) parts.push(`${result.failed} failed`);
+  if (result.truncated) parts.push(`${result.truncated} truncated`);
+  if (result.skipped) parts.push(`${result.skipped} turns skipped`);
+  return parts.join(", ");
+}
+
+// Serial, paced fetches: batchexecute replays are non-deterministic under
+// bursts (verified live), so one-at-a-time with a small delay is both the
+// safest for the endpoint and the most reliable. Snapshots current settings.
+async function exportAllConversations(
+  list: { id: string; title: string }[],
+  onProgress: (done: number, total: number) => void,
+): Promise<ExportAllResult> {
+  const used = new Set<string>();
+  const entries: ZipEntry[] = [];
+  const enc = new TextEncoder();
+  let exported = 0;
+  let failed = 0;
+  let truncated = 0;
+  let skipped = 0;
+  // Snapshot settings once: the export can run for minutes while the settings
+  // controls stay live, so read a frozen copy here rather than the mutable
+  // global — otherwise a mid-run toggle would mix formats/options in the ZIP.
+  const snapshot = { ...settings };
+  const date = new Date().toISOString().slice(0, 10);
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (!item) continue;
+    onProgress(i, list.length);
+    try {
+      const {
+        conv,
+        truncated: tr,
+        skipped: sk,
+      } = await fetchConversationContent(item.id, item.title);
+      skipped += sk;
+      if (!conv.turns.length) {
+        failed++;
+      } else {
+        if (tr) truncated++;
+        const { text, extension } = renderConversation(conv, snapshot);
+        const name = uniqueName(
+          `${date} ${sanitizeFilename(item.title)}.${extension}`,
+          used,
+        );
+        entries.push({ name, data: enc.encode(text) });
+        exported++;
+      }
+    } catch (err) {
+      console.error("[gemini-chat-exporter]", err);
+      failed++;
+    }
+    await bxSleep(400);
+  }
+  if (entries.length)
+    downloadBlob(`gemini-conversations-${date}.zip`, zipStore(entries));
+  return { exported, failed, truncated, skipped };
+}
+
 /** ---------- UI ---------- */
 const ONE_ID = "__gce_export_btn";
 const ONE_LABEL = "⬇ Export this chat";
+const ALL_ID = "__gce_export_all_btn";
+const ALL_LABEL = "⬇ Export all chats (ZIP)";
 const MODAL_ID = "__gce_modal";
 const TRIGGER_ID = "__gce_export_trigger";
 
@@ -511,7 +1127,7 @@ GM_addStyle(`
   #${MODAL_ID} .gce-sw .gce-track::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; background:#fff; border-radius:50%; transition:transform .15s; }
   #${MODAL_ID} .gce-sw input:checked + .gce-track { background:#1a73e8; }
   #${MODAL_ID} .gce-sw input:checked + .gce-track::after { transform:translateX(16px); }
-  #${MODAL_ID} .gce-actions { display:flex; gap:8px; margin-top:8px; }
+  #${MODAL_ID} .gce-actions { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
   #${MODAL_ID} .gce-btn { flex:1; padding:10px; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:14px; }
   #${MODAL_ID} .gce-btn:disabled { opacity:.6; cursor:default; }
   #${MODAL_ID} .gce-primary { background:#1a73e8; color:#fff; }
@@ -562,7 +1178,10 @@ function runExport(
     } catch (err) {
       console.error("[gemini-chat-exporter]", err);
       btn.textContent = "Failed";
-      setProgress("Failed");
+      // Surface the thrown message (e.g. the "open a chat to arm Export-All"
+      // guidance) in the progress line — otherwise an expected, actionable
+      // error looks like a silent failure the user can only find in the console.
+      setProgress(err instanceof Error ? err.message : "Failed");
     } finally {
       setTimeout(() => {
         btn.textContent = defaultLabel;
@@ -680,6 +1299,36 @@ function buildModal(): HTMLDivElement {
   });
   actions.appendChild(oneBtn);
 
+  // Export-All reuses the observe-replay transport (learned from the app's own
+  // batchexecute traffic). If no chat has been opened this session the content
+  // template is not learned yet, so it prompts the user to open one first.
+  const allBtn = elc("button", "gce-btn gce-primary");
+  allBtn.id = ALL_ID;
+  allBtn.type = "button";
+  allBtn.textContent = ALL_LABEL;
+  allBtn.addEventListener("click", () => {
+    runExport(allBtn, ALL_LABEL, async () => {
+      if (!bxTemplates.has(CONTENT_RPCID)) {
+        // If the content rpcid ever rotates, the learned keys reveal the new
+        // literal to swap in — surface them so "not armed" is actionable, not
+        // a dead-end.
+        console.log(
+          "[gemini-chat-exporter] learned rpcids:",
+          [...bxTemplates.keys()].join(", ") || "(none)",
+        );
+        throw new Error(
+          "먼저 아무 대화나 한 번 열어 Export-All을 활성화하세요.",
+        );
+      }
+      const list = await listAllConversations();
+      const result = await exportAllConversations(list, (done, total) => {
+        setProgress(`${done}/${total} 내보내는 중…`);
+      });
+      return formatExportSummary(result);
+    });
+  });
+  actions.appendChild(allBtn);
+
   panel.appendChild(head);
   panel.appendChild(seg);
   panel.appendChild(opts);
@@ -755,37 +1404,68 @@ function mountUI(): void {
   if (sidebar) sidebar.prepend(buildTrigger(false));
   else document.body.appendChild(buildTrigger(true));
 }
-mountUI();
 
-// Gemini's Angular sidebar drawer opens/closes and re-renders, tearing down
-// our trigger. Debounced observer + guard so our own insertion doesn't
-// thrash it into a mount loop.
 let remountQueued = false;
-const observer = new MutationObserver(() => {
-  const trigger = document.getElementById(TRIGGER_ID);
-  const canUpgrade =
-    trigger?.classList.contains("gce-floating") === true &&
-    document.querySelector(SEL.sidebar) !== null;
-  if (trigger && document.getElementById(MODAL_ID) && !canUpgrade) return;
-  if (remountQueued) return;
-  remountQueued = true;
-  setTimeout(() => {
-    remountQueued = false;
-    mountUI();
-  }, 200);
-});
-observer.observe(document.documentElement, { childList: true, subtree: true });
 
-// Belt-and-suspenders (chatgpt-exporter pattern): the debounced observer catches
-// most re-renders, but Gemini's Angular sidebar can fully remount in ways it
-// misses. A low-frequency reconciliation loop re-mounts when our trigger or
-// modal is no longer in the document. getElementById only returns connected
-// nodes, so a null result already means "disconnected → re-mount". mountUI is
-// idempotent.
-setInterval(() => {
-  if (
-    !document.getElementById(TRIGGER_ID) ||
-    !document.getElementById(MODAL_ID)
-  )
-    mountUI();
-}, 1000);
+// UI init is separated from the interceptor (which installs at module load) so
+// the script can run at `document-start` — the interceptor must be live before
+// Angular boots to learn the list template from the boot batchexecute traffic,
+// but the UI cannot mount until <body> exists.
+function initUI(): void {
+  mountUI();
+
+  // Gemini's Angular sidebar drawer opens/closes and re-renders, tearing down
+  // our trigger. Debounced observer + guard so our own insertion doesn't
+  // thrash it into a mount loop.
+  const observer = new MutationObserver(() => {
+    const trigger = document.getElementById(TRIGGER_ID);
+    const canUpgrade =
+      trigger?.classList.contains("gce-floating") === true &&
+      document.querySelector(SEL.sidebar) !== null;
+    if (trigger && document.getElementById(MODAL_ID) && !canUpgrade) return;
+    if (remountQueued) return;
+    remountQueued = true;
+    setTimeout(() => {
+      remountQueued = false;
+      mountUI();
+    }, 200);
+  });
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  // Belt-and-suspenders (chatgpt-exporter pattern): the debounced observer
+  // catches most re-renders, but Gemini's Angular sidebar can fully remount in
+  // ways it misses. A low-frequency reconciliation loop re-mounts when our
+  // trigger or modal is no longer in the document. getElementById only returns
+  // connected nodes, so a null result already means "disconnected → re-mount".
+  // mountUI is idempotent.
+  setInterval(() => {
+    if (
+      !document.getElementById(TRIGGER_ID) ||
+      !document.getElementById(MODAL_ID)
+    )
+      mountUI();
+  }, 1000);
+}
+
+// At document-start <body> may not exist yet; defer UI until it does.
+if (document.body) initUI();
+else
+  document.addEventListener("DOMContentLoaded", () => initUI(), { once: true });
+
+// Test seam: exposes internal transport/orchestration for the Node harness.
+// Inert in production — under Tampermonkey this is the sandboxed script global,
+// invisible to the page (the interceptor and UI are the real entry points).
+(globalThis as unknown as { __gceInternals?: unknown }).__gceInternals = {
+  bxDecode,
+  bxPayload,
+  parseContentPayload,
+  parseListPage,
+  zipStore,
+  fetchConversationContent,
+  listAllConversations,
+  exportAllConversations,
+  formatExportSummary,
+};

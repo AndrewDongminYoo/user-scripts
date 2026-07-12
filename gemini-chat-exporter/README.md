@@ -1,12 +1,13 @@
 # Gemini Chat Exporter
 
-gemini.google.com 대화 페이지에서 현재 대화를 **Markdown 또는 JSON 파일로 내려받는** 사용자 스크립트입니다.
-Gemini는 안정적인 대화 조회 API를 제공하지 않아(내부 `batchexecute` RPC는 빌드마다 난독화됨), 렌더링된 DOM을 직접 읽어 추출합니다.
+gemini.google.com 대화를 **Markdown 또는 JSON 파일로 내려받는** 사용자 스크립트입니다.
+현재 대화 하나는 렌더링된 DOM을 직접 읽어 내보내고, **전체 대화(Export All)**는 Gemini 자신의 `batchexecute` API를 관찰-재생(observe-replay)해 한 번에 ZIP으로 내보냅니다.
 
 ## 주요 기능
 
 - 사이드바(대화 목록 드로어)가 열려 있으면 "새 채팅" 근처에 네이티브 `⬇ Export` 행을 삽입하고, 드로어가 닫혀 있으면 우측 하단 플로팅 버튼으로 대체
-- 두 트리거 모두 클릭하면 ⚙️ 설정 모달이 열리고, 모달의 **"⬇ Export this chat"** 버튼으로 현재 대화를 다운로드
+- 두 트리거 모두 클릭하면 ⚙️ 설정 모달이 열리고, **"⬇ Export this chat"**(현재 대화 하나)와 **"⬇ Export all chats (ZIP)"**(전체 대화를 하나의 ZIP으로) 버튼을 제공
+- **전체 내보내기(Export All)**: Gemini가 대화 목록/내용을 불러올 때 쓰는 `batchexecute` 요청을 그대로 관찰해 재생합니다 — 대화 id만 바꿔 목록(`MaZiqc`, 커서 페이지네이션)과 내용(`hNvQHb`)을 받아, 각 대화를 Markdown/JSON으로 렌더링해 의존성 없는 store-only ZIP으로 묶습니다. (아무 대화나 한 번 열어 두면 내용 템플릿이 학습되어 활성화됩니다.)
 - 대화의 각 턴(사용자 질문 + Gemini 응답)을 문서 순서대로 읽어 Markdown/JSON 양쪽 렌더러에 동일한 데이터를 공급
 - **Extended thinking**(추론 과정)을 접기 가능한 `🧠 Thinking` 블록으로, **첨부파일**은 파일명만 캡처 (둘 다 토글로 켜고 끌 수 있음)
 - 무한 스크롤 대화 목록을 최상단까지 스크롤해 모든 턴이 로드됐는지 확인한 뒤 한 번에 수집 (긴 대화도 누락 없이 내보내기)
@@ -49,9 +50,17 @@ pnpm test      # dist를 빌드한 뒤 Node 샌드박스에서 회귀 테스트 
 - 응답의 HTML을 의존성 없는 자체 변환기로 Markdown으로 변환(제목, 목록, 표, 코드블록, 링크, 굵게/기울임, 인용문 지원)
 - `Blob` + 임시 앵커 클릭으로 `<제목>.md`(또는 `.json`) 다운로드
 
+**전체 내보내기(Export All)**는 별도 경로로 동작합니다:
+
+- `document-start` 인터셉터가 `unsafeWindow`(페이지 월드)의 XHR/fetch를 패치해 Gemini의 `batchexecute` 요청 템플릿을 학습(대화 id + `_reqid`만 교체해 재생)
+- 목록 RPC(`MaZiqc`)를 커서로 페이지네이션해 전체 대화의 `{id, title}`을 열거
+- 각 id로 내용 RPC(`hNvQHb`)를 재생해 턴별 프롬프트/응답을 파싱(요청 폭주 시 응답이 불안정하므로 한 번에 하나씩 간격을 두고 호출)
+- 렌더링 결과를 의존성 없는 store-only ZIP으로 묶어 다운로드
+
 ## 제한 사항
 
-- **전체 내보내기(Export All)는 v1에 없습니다.** Gemini는 대화 목록을 여는 안정적인 API가 없어(내부 `batchexecute`는 취약함) v1.1로 계획을 미뤘습니다. 설계 초안은 [`docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`](../docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md) 참고.
+- **전체 내보내기(Export All)는 `batchexecute` 관찰-재생에 의존합니다.** 앱의 실제 요청을 재생하므로 세션마다 바뀌는 값(`bl` 빌드 라벨, `at`/`f.sid` 토큰)에는 자가 치유됩니다 — 템플릿을 매 세션 새로 학습하기 때문입니다. 다만 두 RPC 식별자(`rpcids`: `MaZiqc`/`hNvQHb`)와 응답 파싱 경로는 **고정 상수**라, Google이 rpcid를 회전하거나 응답 구조를 바꾸면 자가 치유되지 않고 코드 한 줄 수동 갱신이 필요합니다(활성화 경로가 학습된 rpcid 목록을 콘솔에 출력해 새 값을 찾을 수 있게 합니다). 설계 배경은 [`docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`](../docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md) 참고. 내용 템플릿은 대화를 한 번 열어야 학습되며, 그전에는 Export All 버튼이 "대화를 한 번 열어 활성화하세요"라고 안내합니다.
+- **전체 내보내기의 내용 경로(API)**는 현재 Extended thinking·첨부파일 추출을 생략합니다(현재 대화 하나를 내보내는 DOM 경로는 포함). 향후 보완 가능.
 - **Deep Research의 몰입형(immersive) 리포트**는 대상 외입니다. 일반 대화 DOM 구조와 달라 별도 지원이 필요합니다.
 - **이미지 바이트**는 내보내지 않습니다. 첨부파일은 파일명만 캡처합니다.
 - Gemini의 렌더링 DOM을 직접 스크레이핑하므로, Google이 마크업/클래스명을 바꾸면 셀렉터(`SEL`, `src/main.ts`)를 갱신해야 동작합니다 — API가 아니므로 이런 변경에 상대적으로 취약합니다.

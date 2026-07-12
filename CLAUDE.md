@@ -10,7 +10,7 @@ Current scripts:
 
 - `wanted-applied-marker/` — Marks already-applied jobs on Wanted.co.kr job listings (TypeScript source, built with `vite-plugin-monkey`)
 - `claude-chat-exporter/` — Exports Claude.ai conversations (current one, or all) to Markdown/JSON via the site's same-origin API (TypeScript source, built with `vite-plugin-monkey`)
-- `gemini-chat-exporter/` — Exports the current gemini.google.com conversation to Markdown/JSON by scraping the rendered DOM (no API); Export-All is planned for v1.1 (TypeScript source, built with `vite-plugin-monkey`)
+- `gemini-chat-exporter/` — Exports gemini.google.com conversations to Markdown/JSON: the current one by scraping the rendered DOM, and all of them (Export-All → ZIP) via the site's `batchexecute` API driven by an observe-replay interceptor (TypeScript source, built with `vite-plugin-monkey`)
 
 ## Package Manager
 
@@ -74,8 +74,8 @@ See `gemini-chat-exporter/AGENTS.md` for the full design notes. Highlights:
 - **Virtualization-safe turn loading**: `ensureAllTurnsLoaded` repeatedly scrolls `infinite-scroller.chat-history` to `scrollTop = 0` until the rendered turn count stabilizes, then does a single document-order collect — Gemini's scroller lazy-loads older turns upward but does not evict rendered nodes (live-verified).
 - **Trusted Types**: Gemini enforces a Trusted Types CSP, so `element.innerHTML = <string>` throws; the sidebar trigger's icon is built via `document.createElementNS`/`setAttribute`, never `innerHTML`.
 - **Settings**: a `⚙️` panel persists `{ format, frontmatter, includeThinking, includeAttachments }` under the `gce_settings` key.
-- **Export-All deferred to v1.1**: enumerating conversations would need the fragile `batchexecute` RPC; the v1.1 design is in `docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`.
-- **CSP**: `@grant GM_addStyle` (plus `GM_getValue`/`GM_setValue`) forces Tampermonkey's sandboxed world, exempting the script from gemini.google.com's strict CSP.
+- **Export-All via `batchexecute` observe-replay** (shipped, live-verified 2026-07-12): a `document-start` interceptor patches `unsafeWindow`'s (page-world) XHR/fetch to learn the app's own `batchexecute` request templates, then replays them with only the conversation id + `_reqid` swapped (reusing the captured `at` token — no `WIZ_global_data` reading). List RPC `MaZiqc` pages via a response cursor (`payload[2]` entries: `[0]`=`c_<id>`, `[1]`=title; `payload[1]`=cursor); content RPC `hNvQHb` parses per-turn prompt (`turn[2][0][0]`) + response Markdown (`turn[3][0][0][1][0]`), with `payload[1]` as a truncation flag. Serial paced replays (non-deterministic under bursts) → store-only ZIP. Self-heals across `bl`/`at`/`f.sid` rotation (the whole template is re-learned each session); the two rpcid literals (`MaZiqc`/`hNvQHb`) and payload paths are **pinned constants**, so an rpcid or payload-structure rotation needs a one-line manual refresh (the arming path logs learned rpcids to the console). Design: `docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`.
+- **CSP / grants**: `@grant GM_addStyle`, `GM_getValue`, `GM_setValue`, `unsafeWindow`; `@run-at document-start`. A real `GM_*` grant forces Tampermonkey's sandboxed world (CSP-exempt); `unsafeWindow` lets the interceptor patch the page world; `document-start` makes the interceptor live before Angular's boot `batchexecute` calls (UI mount deferred to `<body>`).
 - **Tests**: `gemini-chat-exporter/test/run.mjs` is a Node harness that runs the built `dist` bundle against a stubbed DOM/GM sandbox; add assertions there for new behavior.
 
 ## CI/CD Pipeline
