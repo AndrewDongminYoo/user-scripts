@@ -415,6 +415,112 @@ async function testThinkingToggleOffAndJson() {
 }
 await testThinkingToggleOffAndJson();
 
+const bigOutput = "x".repeat(2500);
+const toolDetail = {
+  uuid: CHAT,
+  name: "Tools",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        { type: "text", text: "Running it" },
+        { type: "tool_use", name: "bash_tool", input: { command: "ls" } },
+        {
+          type: "tool_result",
+          is_error: false,
+          content: [{ type: "text", text: bigOutput }],
+        },
+        { type: "tool_use", name: "web_search", input: { query: "q" } },
+        {
+          type: "tool_result",
+          is_error: true,
+          content: [{ type: "text", text: "boom" }],
+        },
+      ],
+      created_at: "2026-07-11T09:10:00Z",
+    },
+  ],
+};
+
+async function testToolsMarkdown() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(toolDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  s.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await s.downloaded).blob.parts[0]);
+  check(
+    "tool_use summary rendered",
+    text.includes("<details><summary>🔧 bash_tool</summary>"),
+  );
+  check("tool input as json fence", text.includes('"command": "ls"'));
+  check(
+    "tool_use precedes tool_result",
+    text.indexOf("🔧 bash_tool") < text.indexOf("↳ Result"),
+  );
+  check(
+    "tool_result error flagged",
+    text.includes("<details><summary>↳ Result · error</summary>"),
+  );
+  check("long tool result truncated", text.includes("… (truncated)"));
+  check("md cap respected", !text.includes("x".repeat(2100)));
+}
+await testToolsMarkdown();
+
+async function testToolsJsonAndToggle() {
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(toolDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  const tools = obj.messages[0].tools;
+  check("json two tool records", Array.isArray(tools) && tools.length === 2);
+  check(
+    "json tool name+input",
+    tools[0].name === "bash_tool" && tools[0].input.command === "ls",
+  );
+  check(
+    "json tool result full (untruncated)",
+    tools[0].result.length === 2500 && !tools[0].result.includes("truncated"),
+  );
+  check("json tool error flag", tools[1].is_error === true);
+
+  const off = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false, includeToolCalls: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(toolDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  off.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const offText = String((await off.downloaded).blob.parts[0]);
+  check(
+    "tools omitted when toggle off",
+    !offText.includes("🔧") && !offText.includes("↳ Result"),
+  );
+  check("text kept when tools off", offText.includes("Running it"));
+}
+await testToolsJsonAndToggle();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
