@@ -10,6 +10,7 @@ Current scripts:
 
 - `wanted-applied-marker/` — Marks already-applied jobs on Wanted.co.kr job listings (TypeScript source, built with `vite-plugin-monkey`)
 - `claude-chat-exporter/` — Exports Claude.ai conversations (current one, or all) to Markdown/JSON via the site's same-origin API (TypeScript source, built with `vite-plugin-monkey`)
+- `gemini-chat-exporter/` — Exports the current gemini.google.com conversation to Markdown/JSON by scraping the rendered DOM (no API); Export-All is planned for v1.1 (TypeScript source, built with `vite-plugin-monkey`)
 
 ## Package Manager
 
@@ -30,7 +31,7 @@ Monorepo-wide commands (from root):
 ```sh
 pnpm build       # Build all packages
 pnpm typecheck   # Type-check all packages (tsc --noEmit)
-pnpm -r test     # Run each package's test harness (currently claude-chat-exporter)
+pnpm -r test     # Run each package's test harness (currently claude-chat-exporter, gemini-chat-exporter)
 ```
 
 ## Architecture
@@ -64,6 +65,19 @@ See `claude-chat-exporter/AGENTS.md` for the full design notes. Highlights:
 - **CSP**: `@grant GM_addStyle` (plus `GM_getValue`/`GM_setValue`) forces Tampermonkey's sandboxed world, exempting the script from claude.ai's strict CSP.
 - **Tests**: `claude-chat-exporter/test/run.mjs` is a Node harness that runs the built `dist` bundle against a stubbed DOM/GM/fetch sandbox; add assertions there for new behavior.
 
+### gemini-chat-exporter Key Design
+
+See `gemini-chat-exporter/AGENTS.md` for the full design notes. Highlights:
+
+- **DOM scraping via `SEL`**: Gemini exposes no clean conversation API (its internal `batchexecute` RPC is per-build obfuscated), so a centralized `SEL` object (`turn`, `userQuery`, `queryText`, `attachmentChip`, `modelResponse`, `responseMarkdown`, `thinking`, `scroller`, `sidebar`) selects the stable semantic Angular custom elements instead — a selector fix is a one-place edit.
+- **HTML→MD converter**: dependency-free (`htmlToMarkdown`/`blockMd`/`inlineMd`/`listMd`/`tableMd`), covering headings, ordered/nested lists, tables, fenced code blocks, links, bold/italic, and blockquotes; both the Markdown and JSON renderers consume the same `Conversation`/`Turn` shape.
+- **Virtualization-safe turn loading**: `ensureAllTurnsLoaded` repeatedly scrolls `infinite-scroller.chat-history` to `scrollTop = 0` until the rendered turn count stabilizes, then does a single document-order collect — Gemini's scroller lazy-loads older turns upward but does not evict rendered nodes (live-verified).
+- **Trusted Types**: Gemini enforces a Trusted Types CSP, so `element.innerHTML = <string>` throws; the sidebar trigger's icon is built via `document.createElementNS`/`setAttribute`, never `innerHTML`.
+- **Settings**: a `⚙️` panel persists `{ format, frontmatter, includeThinking, includeAttachments }` under the `gce_settings` key.
+- **Export-All deferred to v1.1**: enumerating conversations would need the fragile `batchexecute` RPC; the v1.1 design is in `docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`.
+- **CSP**: `@grant GM_addStyle` (plus `GM_getValue`/`GM_setValue`) forces Tampermonkey's sandboxed world, exempting the script from gemini.google.com's strict CSP.
+- **Tests**: `gemini-chat-exporter/test/run.mjs` is a Node harness that runs the built `dist` bundle against a stubbed DOM/GM sandbox; add assertions there for new behavior.
+
 ## CI/CD Pipeline
 
 | Workflow | File                            | Trigger                          |
@@ -77,7 +91,7 @@ Runs `pnpm typecheck`, `pnpm -r build`, `pnpm -r test` (the per-package Node har
 
 ### Release Workflow
 
-Uses a matrix over packages (`wanted-applied-marker`, `claude-chat-exporter`). For each package:
+Uses a matrix over packages (`wanted-applied-marker`, `claude-chat-exporter`, `gemini-chat-exporter`). For each package:
 
 1. Detects `feat:|fix:|refactor:|perf:` conventional commits since the last tag that touched `<package>/`
 2. Generates a **date-based version** (`YYYY-MM-DD`). Same-day releases use `.N` suffix (e.g., `2026-02-24.1`)
