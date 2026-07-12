@@ -29,6 +29,40 @@ function node({ text = "", query = {}, queryAll = {} } = {}) {
   };
 }
 
+// Element/text node fixtures for the HTML->MD converter.
+function textNode(s) {
+  return { nodeType: 3, textContent: s, childNodes: [] };
+}
+// Depth-first descendant search by tag name (uppercase nodeName), mirroring
+// the subset of querySelector/querySelectorAll the converter relies on
+// (single tag-name selectors only: "code", "tr").
+function findDescendants(root, tagName) {
+  const upper = tagName.toUpperCase();
+  const results = [];
+  for (const c of root.childNodes ?? []) {
+    if (c.nodeType === 1) {
+      if (c.nodeName === upper) results.push(c);
+      results.push(...findDescendants(c, tagName));
+    }
+  }
+  return results;
+}
+function elNode(name, children = [], attrs = {}) {
+  const elem = {
+    nodeType: 1,
+    nodeName: name.toUpperCase(),
+    childNodes: children,
+    getAttribute: (k) => attrs[k] ?? null,
+    classList: { contains: (c) => (attrs.class ?? "").split(" ").includes(c) },
+    get textContent() {
+      return children.map((c) => c.textContent).join("");
+    },
+    querySelector: (sel) => findDescendants(elem, sel)[0] ?? null,
+    querySelectorAll: (sel) => findDescendants(elem, sel),
+  };
+  return elem;
+}
+
 function makeSandbox({ pathname, title, turns, settings }) {
   let lastBlob = null;
   let resolveDownload;
@@ -59,7 +93,12 @@ function makeSandbox({ pathname, title, turns, settings }) {
     node({
       query: {
         ".query-text": node({ text: t.prompt }),
-        ".markdown": node({ text: t.response }),
+        // .markdown is real converter input: an element tree with
+        // childNodes/nodeType, either a caller-supplied fixture (responseNode)
+        // or a plain text response wrapped in a single text node.
+        ".markdown":
+          t.responseNode ??
+          elNode("div", t.response ? [textNode(t.response)] : []),
         "thinking-overlay": t.thinking ? node({ text: t.thinking }) : null,
         ".file-preview-container": null,
       },
@@ -131,6 +170,115 @@ function makeSandbox({ pathname, title, turns, settings }) {
   check("md has user turn", blob.text.includes("Hello"));
   check("md has gemini turn", blob.text.includes("Goodbye"));
   check("md mime", blob.type.startsWith("text/markdown"));
+}
+
+// --- Test: HTML->Markdown converter fidelity ---
+{
+  // .markdown containing: <h2>, <p><strong>, <ul><li>, <pre><code class="language-js">, <p><a>
+  const md = elNode("div", [
+    elNode("h2", [textNode("Heading")]),
+    elNode("p", [
+      textNode("A "),
+      elNode("strong", [textNode("bold")]),
+      textNode(" word."),
+    ]),
+    elNode("ul", [
+      elNode("li", [textNode("one")]),
+      elNode("li", [textNode("two")]),
+    ]),
+    elNode("pre", [
+      elNode("code", [textNode("const x = 1;")], { class: "language-js" }),
+    ]),
+    elNode("p", [elNode("a", [textNode("link")], { href: "https://x.dev" })]),
+  ]);
+
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/def456",
+    title: "MD fidelity - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Show me", responseNode: md }],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const out = blob.text;
+  check("h2 -> ##", out.includes("## Heading"));
+  check("bold -> **", out.includes("**bold**"));
+  check("ul -> - ", out.includes("- one") && out.includes("- two"));
+  check(
+    "code fence + lang",
+    out.includes("```js") && out.includes("const x = 1;"),
+  );
+  check("link -> []()", out.includes("[link](https://x.dev)"));
+}
+
+// --- Test: nested list + table edge cases (must not crash) ---
+{
+  const md = elNode("div", [
+    elNode("ul", [
+      elNode("li", [textNode("outer one")]),
+      elNode("li", [
+        textNode("outer two"),
+        elNode("ul", [
+          elNode("li", [textNode("inner a")]),
+          elNode("li", [textNode("inner b")]),
+        ]),
+      ]),
+    ]),
+    elNode("table", [
+      elNode("tr", [
+        elNode("th", [textNode("Col A")]),
+        elNode("th", [textNode("Col B")]),
+      ]),
+      elNode("tr", [
+        elNode("td", [textNode("r1c1")]),
+        elNode("td", [textNode("r1c2")]),
+      ]),
+      elNode("tr", [
+        elNode("td", [textNode("r2c1")]),
+        elNode("td", [textNode("r2c2")]),
+      ]),
+    ]),
+  ]);
+
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/ghi789",
+    title: "Edge cases - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Edge", responseNode: md }],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const out = blob.text;
+  check(
+    "nested list doesn't crash",
+    out.includes("outer one") &&
+      out.includes("outer two") &&
+      out.includes("inner a") &&
+      out.includes("inner b"),
+  );
+  check("table separator row", out.includes("| --- | --- |"));
+  check("table header row", out.includes("Col A") && out.includes("Col B"));
+  check(
+    "table data rows",
+    out.includes("r1c1") &&
+      out.includes("r1c2") &&
+      out.includes("r2c1") &&
+      out.includes("r2c2"),
+  );
 }
 
 if (failures) {

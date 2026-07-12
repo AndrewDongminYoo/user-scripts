@@ -76,9 +76,161 @@ function getTitle(): string {
   );
 }
 
-/** ---------- HTML -> Markdown (plain-text stub; fidelity in Task 2) ---------- */
+/** ---------- HTML -> Markdown (dependency-free) ---------- */
+const BLOCK_TAGS = new Set([
+  "P",
+  "DIV",
+  "SECTION",
+  "ARTICLE",
+  "UL",
+  "OL",
+  "PRE",
+  "TABLE",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "BLOCKQUOTE",
+]);
+
+function codeLang(code: Element): string {
+  const cls = code.getAttribute("class") ?? "";
+  const m = cls.match(/language-([\w+-]+)/);
+  return m ? m[1] : "";
+}
+
+function inlineMd(node: Node): string {
+  if (node.nodeType === 3 /* text */) return node.textContent ?? "";
+  if (node.nodeType !== 1 /* element */) return "";
+  const el = node as Element;
+  const inner = childrenInline(el);
+  switch (el.nodeName) {
+    case "STRONG":
+    case "B":
+      return `**${inner}**`;
+    case "EM":
+    case "I":
+      return `*${inner}*`;
+    case "CODE":
+      return `\`${inner}\``;
+    case "A": {
+      const href = el.getAttribute("href") ?? "";
+      return href ? `[${inner}](${href})` : inner;
+    }
+    case "BR":
+      return "\n";
+    default:
+      return inner;
+  }
+}
+
+function childrenInline(el: Element): string {
+  let s = "";
+  el.childNodes.forEach((c) => {
+    s += inlineMd(c);
+  });
+  return s;
+}
+
+function listMd(el: Element, ordered: boolean): string {
+  const lines: string[] = [];
+  let n = 1;
+  el.childNodes.forEach((c) => {
+    if (c.nodeType === 1 && (c as Element).nodeName === "LI") {
+      const marker = ordered ? `${n++}.` : "-";
+      lines.push(`${marker} ${childrenInline(c as Element).trim()}`);
+    }
+  });
+  return lines.join("\n");
+}
+
+function tableMd(el: Element): string {
+  const rows: string[][] = [];
+  const trList = el.querySelectorAll("tr");
+  trList.forEach((tr) => {
+    const cells: string[] = [];
+    tr.childNodes.forEach((cell) => {
+      if (
+        cell.nodeType === 1 &&
+        ((cell as Element).nodeName === "TD" ||
+          (cell as Element).nodeName === "TH")
+      )
+        cells.push(
+          childrenInline(cell as Element)
+            .trim()
+            .replace(/\|/g, "\\|"),
+        );
+    });
+    if (cells.length) rows.push(cells);
+  });
+  if (!rows.length) return "";
+  const width = rows[0].length;
+  const header = `| ${rows[0].join(" | ")} |`;
+  const sep = `| ${Array(width).fill("---").join(" | ")} |`;
+  const body = rows
+    .slice(1)
+    .map((r) => `| ${r.join(" | ")} |`)
+    .join("\n");
+  return [header, sep, body].filter(Boolean).join("\n");
+}
+
+function blockMd(el: Element): string {
+  switch (el.nodeName) {
+    case "H1":
+      return `# ${childrenInline(el).trim()}`;
+    case "H2":
+      return `## ${childrenInline(el).trim()}`;
+    case "H3":
+      return `### ${childrenInline(el).trim()}`;
+    case "H4":
+      return `#### ${childrenInline(el).trim()}`;
+    case "H5":
+      return `##### ${childrenInline(el).trim()}`;
+    case "H6":
+      return `###### ${childrenInline(el).trim()}`;
+    case "UL":
+      return listMd(el, false);
+    case "OL":
+      return listMd(el, true);
+    case "TABLE":
+      return tableMd(el);
+    case "BLOCKQUOTE":
+      return childrenInline(el)
+        .trim()
+        .split("\n")
+        .map((l) => `> ${l}`)
+        .join("\n");
+    case "PRE": {
+      const code = el.querySelector("code");
+      const lang = code ? codeLang(code) : "";
+      const body = (code ?? el).textContent ?? "";
+      return `\`\`\`${lang}\n${body.replace(/\n$/, "")}\n\`\`\``;
+    }
+    case "P":
+    default:
+      return childrenInline(el).trim();
+  }
+}
+
 function htmlToMarkdown(root: Element | null): string {
-  return (root?.textContent ?? "").trim();
+  if (!root) return "";
+  const blocks: string[] = [];
+  root.childNodes.forEach((node) => {
+    if (node.nodeType === 3) {
+      const t = (node.textContent ?? "").trim();
+      if (t) blocks.push(t);
+    } else if (node.nodeType === 1) {
+      const el = node as Element;
+      if (BLOCK_TAGS.has(el.nodeName)) blocks.push(blockMd(el));
+      else {
+        const inline = inlineMd(el).trim();
+        if (inline) blocks.push(inline);
+      }
+    }
+  });
+  return blocks.filter(Boolean).join("\n\n").trim();
 }
 
 /** ---------- Extraction ---------- */
