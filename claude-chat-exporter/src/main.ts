@@ -18,6 +18,27 @@
 interface ContentBlock {
   type?: string;
   text?: string;
+  // thinking blocks
+  thinking?: string;
+  hidden?: boolean;
+  thinking_hidden?: boolean;
+  // tool_use blocks
+  name?: string;
+  input?: unknown;
+  // tool_result blocks (content is an array of sub-blocks, or a string)
+  content?: ContentBlock[] | string;
+  is_error?: boolean;
+  // tool_result sub-block descriptors
+  title?: string;
+  url?: string;
+  file_path?: string;
+}
+
+interface Attachment {
+  file_name?: string;
+  file_size?: number;
+  file_type?: string;
+  extracted_content?: string;
 }
 
 interface ChatMessage {
@@ -25,6 +46,7 @@ interface ChatMessage {
   sender?: string;
   text?: string;
   content?: ContentBlock[];
+  attachments?: Attachment[];
   created_at?: string;
 }
 
@@ -59,6 +81,9 @@ interface Settings {
   format: Format;
   frontmatter: boolean;
   messageTimestamps: boolean;
+  includeThinking: boolean;
+  includeToolCalls: boolean;
+  includeAttachments: boolean;
 }
 
 const SETTINGS_KEY = "cce_settings";
@@ -66,7 +91,18 @@ const DEFAULT_SETTINGS: Settings = {
   format: "md",
   frontmatter: true,
   messageTimestamps: false,
+  includeThinking: true,
+  includeToolCalls: true,
+  includeAttachments: true,
 };
+
+const MD_BLOCK_CAP = 2000;
+
+interface BlockOpts {
+  includeThinking: boolean;
+  includeToolCalls: boolean;
+  includeAttachments: boolean;
+}
 
 function loadSettings(): Settings {
   try {
@@ -138,16 +174,77 @@ async function fetchConversationList(
 }
 
 /** ---------- Markdown rendering ---------- */
-function extractText(msg: ChatMessage): string {
-  const parts: string[] = [];
+function truncate(s: string, cap: number): string {
+  return s.length > cap ? `${s.slice(0, cap)}\n… (truncated)` : s;
+}
+
+function isRenderableThinking(block: ContentBlock): boolean {
+  if (block.hidden === true || block.thinking_hidden === true) return false;
+  return typeof block.thinking === "string" && block.thinking.trim().length > 0;
+}
+
+// Markdown body for one message: attachments first, then blocks in document order.
+function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
+  const out: string[] = [];
   for (const block of msg.content ?? []) {
-    if (typeof block.text === "string" && block.text.trim()) {
-      parts.push(block.text);
+    if (block.type === "text") {
+      if (typeof block.text === "string" && block.text.trim())
+        out.push(block.text.trim());
+    } else if (block.type === "thinking") {
+      if (opts.includeThinking && isRenderableThinking(block)) {
+        const body = truncate((block.thinking as string).trim(), MD_BLOCK_CAP);
+        out.push(
+          `<details><summary>🧠 Extended thinking</summary>\n\n${body}\n\n</details>`,
+        );
+      }
     }
   }
-  let out = parts.join("\n\n").trim();
-  if (!out && typeof msg.text === "string") out = msg.text.trim();
-  return out;
+  let joined = out.join("\n\n").trim();
+  if (!joined && typeof msg.text === "string") joined = msg.text.trim();
+  return joined;
+}
+
+interface ToolRecord {
+  name: string;
+  input: unknown;
+  result: string;
+  is_error: boolean;
+}
+
+interface JsonAttachment {
+  file_name?: string;
+  file_size?: number;
+  file_type?: string;
+  extracted_content?: string;
+}
+
+interface StructuredMessage {
+  text: string;
+  thinking: string[];
+  tools: ToolRecord[];
+  attachments: JsonAttachment[];
+}
+
+// Structured collection for JSON: typed arrays, document-order tool pairing.
+function collectStructured(
+  msg: ChatMessage,
+  opts: BlockOpts,
+): StructuredMessage {
+  const textParts: string[] = [];
+  const thinking: string[] = [];
+  const tools: ToolRecord[] = [];
+  for (const block of msg.content ?? []) {
+    if (block.type === "text") {
+      if (typeof block.text === "string" && block.text.trim())
+        textParts.push(block.text.trim());
+    } else if (block.type === "thinking") {
+      if (opts.includeThinking && isRenderableThinking(block))
+        thinking.push((block.thinking as string).trim());
+    }
+  }
+  let text = textParts.join("\n\n").trim();
+  if (!text && typeof msg.text === "string") text = msg.text.trim();
+  return { text, thinking, tools, attachments: [] };
 }
 
 function roleLabel(sender: string | undefined): string {
@@ -222,7 +319,14 @@ function roleHeader(
 function toMarkdown(
   conv: Conversation,
   chatId: string,
-  opts: { frontmatter: boolean; messageTimestamps: boolean; meta: ConvMeta },
+  opts: {
+    frontmatter: boolean;
+    messageTimestamps: boolean;
+    meta: ConvMeta;
+    includeThinking: boolean;
+    includeToolCalls: boolean;
+    includeAttachments: boolean;
+  },
 ): string {
   const messages = conv.chat_messages ?? conv.messages ?? [];
   const title = (conv.name ?? "").trim() || "Claude conversation";
@@ -231,7 +335,11 @@ function toMarkdown(
   const turns: string[] = [];
   let rendered = 0;
   for (const msg of messages) {
-    const body = extractText(msg);
+    const body = renderBlocks(msg, {
+      includeThinking: opts.includeThinking,
+      includeToolCalls: opts.includeToolCalls,
+      includeAttachments: opts.includeAttachments,
+    });
     if (!body) continue;
     rendered++;
     turns.push(
@@ -261,9 +369,17 @@ interface JsonMessage {
   role: "user" | "assistant";
   text: string;
   created_at: string | null;
+  thinking?: string[];
+  tools?: ToolRecord[];
+  attachments?: JsonAttachment[];
 }
 
-function toJSON(conv: Conversation, chatId: string, meta: ConvMeta): string {
+function toJSON(
+  conv: Conversation,
+  chatId: string,
+  meta: ConvMeta,
+  opts: BlockOpts,
+): string {
   const messages = conv.chat_messages ?? conv.messages ?? [];
   const out = {
     title: (conv.name ?? "").trim() || "Claude conversation",
@@ -275,13 +391,23 @@ function toJSON(conv: Conversation, chatId: string, meta: ConvMeta): string {
     messages: [] as JsonMessage[],
   };
   for (const msg of messages) {
-    const text = extractText(msg);
-    if (!text) continue;
-    out.messages.push({
+    const st = collectStructured(msg, opts);
+    if (
+      !st.text &&
+      !st.thinking.length &&
+      !st.tools.length &&
+      !st.attachments.length
+    )
+      continue;
+    const m: JsonMessage = {
       role: msg.sender === "human" ? "user" : "assistant",
-      text,
+      text: st.text,
       created_at: msg.created_at ?? null,
-    });
+    };
+    if (st.thinking.length) m.thinking = st.thinking;
+    if (st.tools.length) m.tools = st.tools;
+    if (st.attachments.length) m.attachments = st.attachments;
+    out.messages.push(m);
   }
   return JSON.stringify(out, null, 2);
 }
@@ -292,9 +418,14 @@ function renderConversation(
   meta: ConvMeta,
   s: Settings,
 ): { text: string; extension: string; mime: string } {
+  const blockOpts: BlockOpts = {
+    includeThinking: s.includeThinking,
+    includeToolCalls: s.includeToolCalls,
+    includeAttachments: s.includeAttachments,
+  };
   if (s.format === "json") {
     return {
-      text: toJSON(conv, chatId, meta),
+      text: toJSON(conv, chatId, meta, blockOpts),
       extension: "json",
       mime: "application/json;charset=utf-8",
     };
@@ -304,6 +435,7 @@ function renderConversation(
       frontmatter: s.frontmatter,
       messageTimestamps: s.messageTimestamps,
       meta,
+      ...blockOpts,
     }),
     extension: "md",
     mime: "text/markdown;charset=utf-8",
