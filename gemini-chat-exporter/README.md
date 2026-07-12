@@ -59,7 +59,7 @@ pnpm test      # dist를 빌드한 뒤 Node 샌드박스에서 회귀 테스트 
 
 ## 제한 사항
 
-- **전체 내보내기(Export All)는 `batchexecute` 관찰-재생에 의존합니다.** 이 API는 Gemini 빌드마다 회전(`rpcids`/`bl`)하지만, 앱의 실제 요청을 재생하므로 회전에는 자가 치유됩니다 — 다만 응답 구조 자체가 바뀌면 파서 경로를 갱신해야 합니다. 설계 배경은 [`docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`](../docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md) 참고. 내용 템플릿은 대화를 한 번 열어야 학습되며, 그전에는 Export All 버튼이 "대화를 한 번 열어 활성화하세요"라고 안내합니다.
+- **전체 내보내기(Export All)는 `batchexecute` 관찰-재생에 의존합니다.** 앱의 실제 요청을 재생하므로 세션마다 바뀌는 값(`bl` 빌드 라벨, `at`/`f.sid` 토큰)에는 자가 치유됩니다 — 템플릿을 매 세션 새로 학습하기 때문입니다. 다만 두 RPC 식별자(`rpcids`: `MaZiqc`/`hNvQHb`)와 응답 파싱 경로는 **고정 상수**라, Google이 rpcid를 회전하거나 응답 구조를 바꾸면 자가 치유되지 않고 코드 한 줄 수동 갱신이 필요합니다(활성화 경로가 학습된 rpcid 목록을 콘솔에 출력해 새 값을 찾을 수 있게 합니다). 설계 배경은 [`docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`](../docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md) 참고. 내용 템플릿은 대화를 한 번 열어야 학습되며, 그전에는 Export All 버튼이 "대화를 한 번 열어 활성화하세요"라고 안내합니다.
 - **전체 내보내기의 내용 경로(API)**는 현재 Extended thinking·첨부파일 추출을 생략합니다(현재 대화 하나를 내보내는 DOM 경로는 포함). 향후 보완 가능.
 - **Deep Research의 몰입형(immersive) 리포트**는 대상 외입니다. 일반 대화 DOM 구조와 달라 별도 지원이 필요합니다.
 - **이미지 바이트**는 내보내지 않습니다. 첨부파일은 파일명만 캡처합니다.

@@ -54,8 +54,9 @@ pnpm test
   instead — see the next note and the blueprint at
   `../docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`.
 - **Export-All via `batchexecute` observe-replay (the fragile seam):**
-  Gemini's data API is `batchexecute` over XHR; its `rpcids`/`bl` build label
-  rotate per deploy, so we never reconstruct a request. A `document-start`
+  Gemini's data API is `batchexecute` over XHR; its `bl` build label rotates
+  per deploy (and `rpcids` can rotate too), so we never reconstruct a request.
+  A `document-start`
   interceptor (`bxInstallInterceptor`) patches **`unsafeWindow`'s**
   XMLHttpRequest/fetch — the page (main) world where Angular's XHR and the
   auth cookies live; a sandbox-only patch misses that traffic — and records
@@ -84,9 +85,15 @@ pnpm test
     both list paging and the export orchestrator fetch **one at a time with a
     small delay**, retrying once on an empty decode. Results are packed into
     the dependency-free store-only ZIP (ported verbatim from
-    `claude-chat-exporter`). This whole seam is the one build-coupled part:
-    rpcid/`bl` rotation self-heals via observe-replay; only a payload-structure
-    change needs a parser (path) refresh.
+    `claude-chat-exporter`). This whole seam is the one build-coupled part.
+    What self-heals: `bl` and the per-session tokens (`at`, `f.sid`, `_reqid`),
+    because the whole template is re-learned from live traffic each session.
+    What does **not**: the two rpcid literals (`MaZiqc`/`hNvQHb`, named
+    constants `LIST_RPCID`/`CONTENT_RPCID`) and the payload paths are **pinned,
+    not learned** — if Google rotates an rpcid or changes the response
+    structure, Export-All fails ("not armed" for content) and needs a one-line
+    manual refresh. The arming path logs the currently-learned rpcids to the
+    console so the new literal is discoverable, not a dead-end.
 - **The `SEL` seam:** every selector Gemini's DOM depends on is centralized in
   the `SEL` object at the top of `src/main.ts` (`turn`, `userQuery`,
   `queryText`, `attachmentChip`, `modelResponse`, `responseMarkdown`,
