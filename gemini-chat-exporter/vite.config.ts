@@ -23,7 +23,10 @@ export default defineConfig({
         // A real GM_* grant forces Tampermonkey's sandboxed world, which is
         // exempt from Gemini's strict CSP. With `@grant none` the injected
         // script is blocked by script-src and never runs.
-        grant: ["GM_addStyle", "GM_getValue", "GM_setValue"],
+        // unsafeWindow reaches the page (main) world so the observe-replay
+        // interceptor can patch Angular's own XMLHttpRequest/fetch — a
+        // sandbox-only patch can miss the app's batchexecute traffic.
+        grant: ["GM_addStyle", "GM_getValue", "GM_setValue", "unsafeWindow"],
       },
     }),
   ],

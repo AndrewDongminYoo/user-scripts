@@ -115,9 +115,22 @@ const bxTemplates = new Map<string, BxTemplate>();
 let bxMaxReqid = 0;
 const BX_REQID_STEP = 100000;
 
-// Saved originals: replays use these so the interceptor never records them,
-// and so a page that later re-patches fetch/XHR cannot shadow our transport.
-const bxOrigFetch = typeof fetch === "function" ? fetch.bind(globalThis) : null;
+// The script runs in Tampermonkey's sandbox (@grant forces it), but Angular's
+// XHR and the auth cookies live in the PAGE world. We must patch the PAGE
+// world's XMLHttpRequest/fetch (via unsafeWindow) to see the app's own
+// batchexecute traffic — a sandbox-only patch can miss it entirely. Fall back
+// to the plain globals when unsafeWindow is unavailable (Node test / @grant
+// none). This is the token-free half of observe-replay: we never read
+// WIZ_global_data; we reuse the captured request (which already carries `at`).
+const bxWin: Window & typeof globalThis =
+  typeof unsafeWindow !== "undefined" && unsafeWindow
+    ? unsafeWindow
+    : (globalThis as Window & typeof globalThis);
+
+// Saved original PAGE fetch: replays use this so the interceptor never records
+// them, and so a page that later re-patches fetch cannot shadow our transport.
+const bxOrigFetch =
+  typeof bxWin.fetch === "function" ? bxWin.fetch.bind(bxWin) : null;
 
 function bxIsBatch(u: string | null | undefined): u is string {
   return typeof u === "string" && u.indexOf("/batchexecute") !== -1;
@@ -181,8 +194,9 @@ function bxHeadersToObject(h: HeadersInit | undefined): Record<string, string> {
 // XHR is the primary patch; fetch is patched defensively. No-ops when the host
 // lacks XHR/fetch (e.g. the Node test sandbox), so the bundle still loads.
 function bxInstallInterceptor(): void {
-  if (typeof XMLHttpRequest !== "undefined") {
-    const proto = XMLHttpRequest.prototype;
+  const PageXHR = bxWin.XMLHttpRequest;
+  if (typeof PageXHR !== "undefined") {
+    const proto = PageXHR.prototype;
     const open = proto.open;
     const send = proto.send;
     const setHeader = proto.setRequestHeader;
@@ -218,8 +232,8 @@ function bxInstallInterceptor(): void {
       return send.call(this, body ?? null);
     };
   }
-  if (typeof fetch === "function" && bxOrigFetch) {
-    globalThis.fetch = function (
+  if (typeof bxWin.fetch === "function" && bxOrigFetch) {
+    bxWin.fetch = function (
       input: RequestInfo | URL,
       init?: RequestInit,
     ): Promise<Response> {
