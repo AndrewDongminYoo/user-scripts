@@ -885,6 +885,156 @@ async function testIdlessParallelTools() {
 }
 await testIdlessParallelTools();
 
+// A message whose only content is a tool_result that extracts to nothing
+// (image-only result, empty content) must be treated as empty by BOTH walkers —
+// Markdown skips it, so JSON must not emit a junk empty-tool record for it.
+const emptyToolResultDetail = {
+  uuid: CHAT,
+  name: "EmptyToolResult",
+  chat_messages: [
+    {
+      sender: "human",
+      content: [{ type: "text", text: "hello" }],
+      created_at: "2026-07-11T12:00:00Z",
+    },
+    {
+      sender: "assistant",
+      content: [{ type: "tool_result", content: [{ type: "image" }] }],
+      created_at: "2026-07-11T12:00:01Z",
+    },
+  ],
+};
+
+async function testEmptyToolResultSkip() {
+  const md = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(emptyToolResultDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  md.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await md.downloaded).blob.parts[0]);
+  check("empty tool_result: md omits Result block", !text.includes("↳ Result"));
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(emptyToolResultDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  check(
+    "empty tool_result: json drops the empty message (md/json agree)",
+    obj.messages.length === 1 && obj.messages[0].role === "user",
+  );
+}
+await testEmptyToolResultSkip();
+
+// Pathological: an id-less result consumes a tool_use via FIFO, then a later
+// id-ful result names that same (already-resulted) tool_use. The first result
+// must not be silently clobbered — byId is purged when the FIFO path consumes.
+const mixedIdPairingDetail = {
+  uuid: CHAT,
+  name: "MixedIdPairing",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        { type: "tool_use", id: "a", name: "t1", input: { x: 1 } },
+        {
+          type: "tool_result",
+          content: [{ type: "text", text: "IDLESS-FIRST" }],
+        },
+        {
+          type: "tool_result",
+          tool_use_id: "a",
+          content: [{ type: "text", text: "IDFUL-SECOND" }],
+        },
+      ],
+      created_at: "2026-07-11T13:00:00Z",
+    },
+  ],
+};
+
+async function testMixedIdPairingNoClobber() {
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(mixedIdPairingDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const tools = JSON.parse(String((await js.downloaded).blob.parts[0]))
+    .messages[0].tools;
+  check(
+    "mixed id pairing: first (FIFO) result not clobbered",
+    tools[0].name === "t1" && tools[0].result === "IDLESS-FIRST",
+  );
+  check(
+    "mixed id pairing: second result preserved, not lost",
+    tools.some((t) => t.result === "IDFUL-SECOND"),
+  );
+}
+await testMixedIdPairingNoClobber();
+
+// The <summary> label is raw HTML, so untrusted names (attachment file_name,
+// tool name) must be HTML-escaped to prevent breaking out of the disclosure.
+const summaryEscapeDetail = {
+  uuid: CHAT,
+  name: "SummaryEscape",
+  chat_messages: [
+    {
+      sender: "human",
+      content: [{ type: "text", text: "see file" }],
+      attachments: [
+        {
+          file_name: "a<b>.txt",
+          file_size: 3,
+          extracted_content: "BODY",
+        },
+      ],
+      created_at: "2026-07-11T14:00:00Z",
+    },
+  ],
+};
+
+async function testSummaryLabelEscaping() {
+  const md = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(summaryEscapeDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  md.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await md.downloaded).blob.parts[0]);
+  check(
+    "attachment file_name escaped in summary",
+    text.includes("📎 a&lt;b&gt;.txt") && !text.includes("a<b>.txt"),
+  );
+}
+await testSummaryLabelEscaping();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

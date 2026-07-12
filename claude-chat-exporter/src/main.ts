@@ -180,7 +180,21 @@ function truncate(s: string, cap: number): string {
   return s.length > cap ? `${s.slice(0, cap)}\n… (truncated)` : s;
 }
 
-function isRenderableThinking(block: ContentBlock): boolean {
+// Escape only the characters that break out of a `<summary>` label. Bodies are
+// left raw on purpose — content fidelity is the point of the export.
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Wrap a collapsible disclosure. Summary text is the caller's responsibility to
+// escape; body is rendered as Markdown.
+function details(summary: string, body: string): string {
+  return `<details><summary>${summary}</summary>\n\n${body}\n\n</details>`;
+}
+
+function isRenderableThinking(
+  block: ContentBlock,
+): block is ContentBlock & { thinking: string } {
   if (block.hidden === true || block.thinking_hidden === true) return false;
   return typeof block.thinking === "string" && block.thinking.trim().length > 0;
 }
@@ -196,8 +210,10 @@ function extractToolResultText(
     if (typeof el.text === "string" && el.text.trim())
       parts.push(el.text.trim());
     else if (el.url) parts.push(el.title ? `${el.title} (${el.url})` : el.url);
-    else if (el.file_path ?? el.name)
-      parts.push((el.file_path ?? el.name) as string);
+    else {
+      const label = el.file_path ?? el.name;
+      if (label) parts.push(label);
+    }
   }
   return parts.join("\n\n").trim();
 }
@@ -222,7 +238,10 @@ function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
       const size =
         typeof a.file_size === "number" ? ` (${a.file_size} bytes)` : "";
       out.push(
-        `<details><summary>📎 ${a.file_name ?? "attachment"}${size}</summary>\n\n${truncate(body, MD_BLOCK_CAP)}\n\n</details>`,
+        details(
+          `📎 ${escapeHtml(a.file_name ?? "attachment")}${size}`,
+          truncate(body, MD_BLOCK_CAP),
+        ),
       );
     }
   }
@@ -234,10 +253,8 @@ function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
       emittedText = true;
     } else if (block.type === "thinking") {
       if (opts.includeThinking && isRenderableThinking(block)) {
-        const body = truncate((block.thinking as string).trim(), MD_BLOCK_CAP);
-        out.push(
-          `<details><summary>🧠 Extended thinking</summary>\n\n${body}\n\n</details>`,
-        );
+        const body = truncate(block.thinking.trim(), MD_BLOCK_CAP);
+        out.push(details("🧠 Extended thinking", body));
       }
     } else if (block.type === "tool_use") {
       if (opts.includeToolCalls) {
@@ -245,7 +262,10 @@ function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
           block.input === undefined ? "" : JSON.stringify(block.input, null, 2);
         const body = truncate(input, MD_BLOCK_CAP);
         out.push(
-          `<details><summary>🔧 ${block.name ?? "tool"}</summary>\n\n\`\`\`json\n${body}\n\`\`\`\n\n</details>`,
+          details(
+            `🔧 ${escapeHtml(block.name ?? "tool")}`,
+            `\`\`\`json\n${body}\n\`\`\``,
+          ),
         );
       }
     } else if (block.type === "tool_result") {
@@ -256,9 +276,7 @@ function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
         );
         if (body) {
           const err = block.is_error ? " · error" : "";
-          out.push(
-            `<details><summary>↳ Result${err}</summary>\n\n${body}\n\n</details>`,
-          );
+          out.push(details(`↳ Result${err}`, body));
         }
       }
     }
@@ -275,13 +293,11 @@ interface ToolRecord {
   is_error: boolean;
 }
 
-type JsonAttachment = Attachment;
-
 interface StructuredMessage {
   text: string;
   thinking: string[];
   tools: ToolRecord[];
-  attachments: JsonAttachment[];
+  attachments: Attachment[];
 }
 
 // Structured collection for JSON: typed arrays, document-order tool pairing.
@@ -300,7 +316,7 @@ function collectStructured(
       textParts.push(textContent);
     } else if (block.type === "thinking") {
       if (opts.includeThinking && isRenderableThinking(block))
-        thinking.push((block.thinking as string).trim());
+        thinking.push(block.thinking.trim());
     } else if (block.type === "tool_use") {
       if (opts.includeToolCalls) {
         tools.push({
@@ -316,24 +332,34 @@ function collectStructured(
     } else if (block.type === "tool_result") {
       if (opts.includeToolCalls) {
         const result = extractToolResultText(block.content);
-        let matchedIdx: number | undefined;
-        if (typeof block.tool_use_id === "string" && block.tool_use_id) {
-          matchedIdx = byId.get(block.tool_use_id);
-        }
+        const id =
+          typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+        let matchedIdx = id ? byId.get(id) : undefined;
         if (matchedIdx !== undefined) {
           // id match: consume it from both the id map and the FIFO queue
-          byId.delete(block.tool_use_id as string);
+          byId.delete(id);
           const qi = pendingQueue.indexOf(matchedIdx);
           if (qi !== -1) pendingQueue.splice(qi, 1);
         } else {
-          // id-less (or unknown id): pair with the oldest unmatched tool_use
+          // id-less (or unknown id): pair with the oldest unmatched tool_use,
+          // and drop its stale id entry so a later id-ful result can't re-hit it.
           matchedIdx = pendingQueue.shift();
+          if (matchedIdx !== undefined) {
+            for (const [k, v] of byId) {
+              if (v === matchedIdx) {
+                byId.delete(k);
+                break;
+              }
+            }
+          }
         }
         if (matchedIdx !== undefined) {
-          const rec = tools[matchedIdx] as ToolRecord;
+          const rec = tools[matchedIdx];
           rec.result = result;
           rec.is_error = block.is_error === true;
-        } else {
+        } else if (result) {
+          // Orphan result with content: keep it. Drop empty orphans so JSON and
+          // Markdown agree on which messages are non-empty.
           tools.push({
             name: block.name ?? "tool",
             input: null,
@@ -346,7 +372,7 @@ function collectStructured(
   }
   let text = textParts.join("\n\n").trim();
   if (!text && typeof msg.text === "string") text = msg.text.trim();
-  const attachments: JsonAttachment[] = [];
+  const attachments: Attachment[] = [];
   if (opts.includeAttachments) {
     for (const a of msg.attachments ?? []) {
       if ((a.extracted_content ?? "").trim()) {
@@ -434,13 +460,10 @@ function roleHeader(
 function toMarkdown(
   conv: Conversation,
   chatId: string,
-  opts: {
+  opts: BlockOpts & {
     frontmatter: boolean;
     messageTimestamps: boolean;
     meta: ConvMeta;
-    includeThinking: boolean;
-    includeToolCalls: boolean;
-    includeAttachments: boolean;
   },
 ): string {
   const messages = conv.chat_messages ?? conv.messages ?? [];
@@ -450,11 +473,7 @@ function toMarkdown(
   const turns: string[] = [];
   let rendered = 0;
   for (const msg of messages) {
-    const body = renderBlocks(msg, {
-      includeThinking: opts.includeThinking,
-      includeToolCalls: opts.includeToolCalls,
-      includeAttachments: opts.includeAttachments,
-    });
+    const body = renderBlocks(msg, opts);
     if (!body) continue;
     rendered++;
     turns.push(
@@ -486,7 +505,7 @@ interface JsonMessage {
   created_at: string | null;
   thinking?: string[];
   tools?: ToolRecord[];
-  attachments?: JsonAttachment[];
+  attachments?: Attachment[];
 }
 
 function toJSON(
@@ -909,38 +928,21 @@ function buildPanel(): HTMLDivElement {
     saveSettings(settings);
   });
 
-  const mkCheck = (
-    id: string,
-    checked: boolean,
-    apply: (v: boolean) => Settings,
-  ): HTMLInputElement => {
+  const mkCheck = (id: string, key: keyof BlockOpts): HTMLInputElement => {
     const c = document.createElement("input");
     c.type = "checkbox";
     c.id = id;
-    c.checked = checked;
+    c.checked = settings[key];
     c.addEventListener("change", () => {
-      settings = apply(c.checked);
+      settings = { ...settings, [key]: c.checked };
       saveSettings(settings);
     });
     return c;
   };
 
-  const think = mkCheck("__cce_thinking", settings.includeThinking, (v) => ({
-    ...settings,
-    includeThinking: v,
-  }));
-  const tools = mkCheck("__cce_tools", settings.includeToolCalls, (v) => ({
-    ...settings,
-    includeToolCalls: v,
-  }));
-  const attach = mkCheck(
-    "__cce_attachments",
-    settings.includeAttachments,
-    (v) => ({
-      ...settings,
-      includeAttachments: v,
-    }),
-  );
+  const think = mkCheck("__cce_thinking", "includeThinking");
+  const tools = mkCheck("__cce_tools", "includeToolCalls");
+  const attach = mkCheck("__cce_attachments", "includeAttachments");
 
   const row = (ctrl: HTMLElement, text: string): HTMLLabelElement => {
     const l = document.createElement("label");
