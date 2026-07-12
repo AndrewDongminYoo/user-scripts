@@ -608,6 +608,43 @@ async function testAttachmentsMarkdownAndJson() {
 }
 await testAttachmentsMarkdownAndJson();
 
+async function testContentToggles() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: "/new",
+    settings: undefined,
+    fetchImpl: () => {
+      throw new Error("no fetch");
+    },
+  });
+  const think = s.allEls.find((e) => e.id === "__cce_thinking");
+  const tools = s.allEls.find((e) => e.id === "__cce_tools");
+  const attach = s.allEls.find((e) => e.id === "__cce_attachments");
+  check("thinking checkbox exists", !!think);
+  check("tools checkbox exists", !!tools);
+  check("attachments checkbox exists", !!attach);
+  check("thinking default checked", think.checked === true);
+  think.checked = false;
+  think._on.change?.();
+  check(
+    "unchecking thinking persists",
+    s.gmStore.cce_settings.includeThinking === false,
+  );
+  tools.checked = false;
+  tools._on.change?.();
+  check(
+    "unchecking tools persists",
+    s.gmStore.cce_settings.includeToolCalls === false,
+  );
+  attach.checked = false;
+  attach._on.change?.();
+  check(
+    "unchecking attachments persists",
+    s.gmStore.cce_settings.includeAttachments === false,
+  );
+}
+await testContentToggles();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
