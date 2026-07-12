@@ -907,6 +907,61 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     "parseListPage: skips non-id entry",
     mixed.refs.length === 1 && mixed.refs[0].title === "Good",
   );
+
+  // Export-All summary must surface skipped turns (partial-parse degradation),
+  // not silently drop them, and omit any zero-valued count.
+  const line = I.formatExportSummary({
+    exported: 3,
+    failed: 1,
+    truncated: 2,
+    skipped: 5,
+  });
+  check("summary lists exported", line.includes("3 exported"));
+  check("summary surfaces skipped turns", line.includes("5 turns skipped"));
+  check(
+    "summary lists failed + truncated",
+    line.includes("1 failed") && line.includes("2 truncated"),
+  );
+  const clean = I.formatExportSummary({
+    exported: 2,
+    failed: 0,
+    truncated: 0,
+    skipped: 0,
+  });
+  check("summary omits zero counts", clean === "2 exported");
+}
+
+// --- Test: Export-All arming miss surfaces the guidance (not a bare "Failed") ---
+// With no batchexecute template learned (no chat opened this session), clicking
+// Export-All throws the Korean "open a chat to arm" guidance; runExport must
+// show that message in the progress line so the expected first-run state is
+// actionable, not a silent failure only visible in the console.
+{
+  const { allEls } = makeSandbox({
+    pathname: "/app/arm001",
+    title: "Arm test - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Hi", response: "Hello" }],
+  });
+  const allBtn = allEls.find((e) => e.id === "__gce_export_all_btn");
+  check("export-all button present", !!allBtn);
+  allBtn._on.click();
+  // Drain the runExport promise chain (a real macrotask flushes vm microtasks).
+  await new Promise((r) => setTimeout(r, 0));
+  const progress = allEls.find((e) => e.className === "gce-progress");
+  check(
+    "arming miss surfaces guidance in progress",
+    !!progress && String(progress.textContent).includes("활성화"),
+  );
+  check(
+    "arming miss is not a bare Failed",
+    !!progress && progress.textContent !== "Failed",
+  );
 }
 
 if (failures) {

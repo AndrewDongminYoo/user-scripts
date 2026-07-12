@@ -1013,6 +1013,18 @@ interface ExportAllResult {
   exported: number;
   failed: number;
   truncated: number;
+  skipped: number;
+}
+
+// Build the human summary line from an Export-All result. Kept as a pure
+// function so the skipped/failed/truncated surfacing stays unit-testable
+// without driving the whole batchexecute transport.
+function formatExportSummary(result: ExportAllResult): string {
+  const parts = [`${result.exported} exported`];
+  if (result.failed) parts.push(`${result.failed} failed`);
+  if (result.truncated) parts.push(`${result.truncated} truncated`);
+  if (result.skipped) parts.push(`${result.skipped} turns skipped`);
+  return parts.join(", ");
 }
 
 // Serial, paced fetches: batchexecute replays are non-deterministic under
@@ -1028,21 +1040,28 @@ async function exportAllConversations(
   let exported = 0;
   let failed = 0;
   let truncated = 0;
+  let skipped = 0;
+  // Snapshot settings once: the export can run for minutes while the settings
+  // controls stay live, so read a frozen copy here rather than the mutable
+  // global — otherwise a mid-run toggle would mix formats/options in the ZIP.
+  const snapshot = { ...settings };
   const date = new Date().toISOString().slice(0, 10);
   for (let i = 0; i < list.length; i++) {
     const item = list[i];
     if (!item) continue;
     onProgress(i, list.length);
     try {
-      const { conv, truncated: tr } = await fetchConversationContent(
-        item.id,
-        item.title,
-      );
+      const {
+        conv,
+        truncated: tr,
+        skipped: sk,
+      } = await fetchConversationContent(item.id, item.title);
+      skipped += sk;
       if (!conv.turns.length) {
         failed++;
       } else {
         if (tr) truncated++;
-        const { text, extension } = renderConversation(conv, settings);
+        const { text, extension } = renderConversation(conv, snapshot);
         const name = uniqueName(
           `${date} ${sanitizeFilename(item.title)}.${extension}`,
           used,
@@ -1058,7 +1077,7 @@ async function exportAllConversations(
   }
   if (entries.length)
     downloadBlob(`gemini-conversations-${date}.zip`, zipStore(entries));
-  return { exported, failed, truncated };
+  return { exported, failed, truncated, skipped };
 }
 
 /** ---------- UI ---------- */
@@ -1150,7 +1169,10 @@ function runExport(
     } catch (err) {
       console.error("[gemini-chat-exporter]", err);
       btn.textContent = "Failed";
-      setProgress("Failed");
+      // Surface the thrown message (e.g. the "open a chat to arm Export-All"
+      // guidance) in the progress line — otherwise an expected, actionable
+      // error looks like a silent failure the user can only find in the console.
+      setProgress(err instanceof Error ? err.message : "Failed");
     } finally {
       setTimeout(() => {
         btn.textContent = defaultLabel;
@@ -1277,18 +1299,23 @@ function buildModal(): HTMLDivElement {
   allBtn.textContent = ALL_LABEL;
   allBtn.addEventListener("click", () => {
     runExport(allBtn, ALL_LABEL, async () => {
-      if (!bxTemplates.has(CONTENT_RPCID))
+      if (!bxTemplates.has(CONTENT_RPCID)) {
+        // If the content rpcid ever rotates, the learned keys reveal the new
+        // literal to swap in — surface them so "not armed" is actionable, not
+        // a dead-end.
+        console.log(
+          "[gemini-chat-exporter] learned rpcids:",
+          [...bxTemplates.keys()].join(", ") || "(none)",
+        );
         throw new Error(
           "먼저 아무 대화나 한 번 열어 Export-All을 활성화하세요.",
         );
+      }
       const list = await listAllConversations();
       const result = await exportAllConversations(list, (done, total) => {
         setProgress(`${done}/${total} 내보내는 중…`);
       });
-      const parts = [`${result.exported} exported`];
-      if (result.failed) parts.push(`${result.failed} failed`);
-      if (result.truncated) parts.push(`${result.truncated} truncated`);
-      return parts.join(", ");
+      return formatExportSummary(result);
     });
   });
   actions.appendChild(allBtn);
@@ -1431,4 +1458,5 @@ else
   fetchConversationContent,
   listAllConversations,
   exportAllConversations,
+  formatExportSummary,
 };
