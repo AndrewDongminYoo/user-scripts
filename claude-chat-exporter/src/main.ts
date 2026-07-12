@@ -203,6 +203,17 @@ function extractToolResultText(
 // Markdown body for one message: attachments first, then blocks in document order.
 function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
   const out: string[] = [];
+  if (opts.includeAttachments) {
+    for (const a of msg.attachments ?? []) {
+      const body = (a.extracted_content ?? "").trim();
+      if (!body) continue;
+      const size =
+        typeof a.file_size === "number" ? ` (${a.file_size} bytes)` : "";
+      out.push(
+        `<details><summary>📎 ${a.file_name ?? "attachment"}${size}</summary>\n\n${truncate(body, MD_BLOCK_CAP)}\n\n</details>`,
+      );
+    }
+  }
   for (const block of msg.content ?? []) {
     if (block.type === "text") {
       if (typeof block.text === "string" && block.text.trim())
@@ -311,7 +322,20 @@ function collectStructured(
   }
   let text = textParts.join("\n\n").trim();
   if (!text && typeof msg.text === "string") text = msg.text.trim();
-  return { text, thinking, tools, attachments: [] };
+  const attachments: JsonAttachment[] = [];
+  if (opts.includeAttachments) {
+    for (const a of msg.attachments ?? []) {
+      if ((a.extracted_content ?? "").trim()) {
+        attachments.push({
+          file_name: a.file_name,
+          file_size: a.file_size,
+          file_type: a.file_type,
+          extracted_content: a.extracted_content,
+        });
+      }
+    }
+  }
+  return { text, thinking, tools, attachments };
 }
 
 function roleLabel(sender: string | undefined): string {

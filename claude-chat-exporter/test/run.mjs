@@ -521,6 +521,93 @@ async function testToolsJsonAndToggle() {
 }
 await testToolsJsonAndToggle();
 
+const attachDetail = {
+  uuid: CHAT,
+  name: "Attach",
+  chat_messages: [
+    {
+      sender: "human",
+      content: [{ type: "text", text: "See attached" }],
+      attachments: [
+        {
+          file_name: "spec.txt",
+          file_size: 42,
+          file_type: "text/plain",
+          extracted_content: "PASTED BODY",
+        },
+        { file_name: "empty.txt", file_size: 0, extracted_content: "   " }, // skipped
+      ],
+      created_at: "2026-07-11T09:20:00Z",
+    },
+  ],
+};
+
+async function testAttachmentsMarkdownAndJson() {
+  const md = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(attachDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  md.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await md.downloaded).blob.parts[0]);
+  check(
+    "attachment summary rendered",
+    text.includes("<details><summary>📎 spec.txt (42 bytes)</summary>"),
+  );
+  check("attachment body rendered", text.includes("PASTED BODY"));
+  check(
+    "attachment appears before message text",
+    text.indexOf("📎 spec.txt") < text.indexOf("See attached"),
+  );
+  check("empty attachment skipped", !text.includes("empty.txt"));
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(attachDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  const att = obj.messages[0].attachments;
+  check("json attachments array", Array.isArray(att) && att.length === 1);
+  check(
+    "json attachment fields",
+    att[0].file_name === "spec.txt" &&
+      att[0].file_size === 42 &&
+      att[0].extracted_content === "PASTED BODY",
+  );
+
+  const off = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false, includeAttachments: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(attachDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  off.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  check(
+    "attachments omitted when toggle off",
+    !String((await off.downloaded).blob.parts[0]).includes("📎"),
+  );
+}
+await testAttachmentsMarkdownAndJson();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
