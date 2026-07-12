@@ -899,6 +899,10 @@ GM_addStyle(`
 let progressEl: HTMLDivElement | null = null;
 let mdOnlyRows: HTMLDivElement[] = [];
 
+function setProgress(text: string): void {
+  if (progressEl) progressEl.textContent = text;
+}
+
 function elc<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   cls?: string,
@@ -914,16 +918,16 @@ function runExport(
   task: () => Promise<string>,
 ): void {
   btn.disabled = true;
-  if (progressEl) progressEl.textContent = "";
+  setProgress("");
   void (async (): Promise<void> => {
     try {
       const doneLabel = await task();
       btn.textContent = doneLabel;
-      if (progressEl) progressEl.textContent = doneLabel;
+      setProgress(doneLabel);
     } catch (err) {
       console.error("[claude-chat-exporter]", err);
       btn.textContent = "Failed";
-      if (progressEl) progressEl.textContent = "Failed";
+      setProgress("Failed");
     } finally {
       setTimeout(() => {
         btn.textContent = defaultLabel;
@@ -952,7 +956,7 @@ function syncMdOnly(): void {
 function swRow(
   id: string,
   label: string,
-  key: "frontmatter" | "messageTimestamps" | keyof BlockOpts,
+  key: Exclude<keyof Settings, "format">,
 ): HTMLDivElement {
   const row = elc("div", "cce-row");
   const text = elc("span");
@@ -1053,8 +1057,7 @@ function buildModal(): HTMLDivElement {
     runExport(allBtn, ALL_LABEL, async () => {
       const { exported, failed } = await exportAllConversations(
         (done, total) => {
-          if (progressEl)
-            progressEl.textContent = `Exporting ${done}/${total}…`;
+          setProgress(`Exporting ${done}/${total}…`);
         },
       );
       return failed > 0
