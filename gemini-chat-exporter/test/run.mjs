@@ -908,6 +908,17 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     mixed.refs.length === 1 && mixed.refs[0].title === "Good",
   );
 
+  // A null payload (bxReplay failed even after its retry) parses to an empty,
+  // cursor-less page — indistinguishable from a legitimate last page at this
+  // layer. This is why listAllConversations guards `payload == null` and throws
+  // instead of breaking, so a failed list fetch surfaces rather than silently
+  // truncating the conversation list.
+  const nullPage = I.parseListPage(null);
+  check(
+    "parseListPage: null -> empty + no cursor (caller must guard)",
+    nullPage.refs.length === 0 && nullPage.cursor === null,
+  );
+
   // Export-All summary must surface skipped turns (partial-parse degradation),
   // not silently drop them, and omit any zero-valued count.
   const line = I.formatExportSummary({

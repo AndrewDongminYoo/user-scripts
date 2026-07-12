@@ -999,6 +999,15 @@ async function listAllConversations(): Promise<ConvRef[]> {
     const payload = await bxReplay(LIST_RPCID, (args) => {
       args[1] = cursor;
     });
+    // A null payload means the replay came back empty/undecodable even after
+    // bxReplay's retry — a transient fetch failure or an expired template, NOT
+    // a legitimate last page (which is a valid payload with no cursor). Throw
+    // so the user is told to retry, rather than silently truncating the list
+    // (or returning [] and reporting "0 exported") as if enumeration finished.
+    if (payload == null)
+      throw new Error(
+        "대화 목록을 가져오지 못했습니다. 잠시 후 다시 시도하세요.",
+      );
     const { refs, cursor: next } = parseListPage(payload);
     for (const r of refs) if (!byId.has(r.id)) byId.set(r.id, r.title);
     if (!next || refs.length === 0) break;
