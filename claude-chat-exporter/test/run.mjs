@@ -645,6 +645,118 @@ async function testContentToggles() {
 }
 await testContentToggles();
 
+const parallelToolsDetail = {
+  uuid: CHAT,
+  name: "Parallel Tools",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        { type: "tool_use", id: "a", name: "t1", input: { x: 1 } },
+        { type: "tool_use", id: "b", name: "t2", input: { y: 2 } },
+        {
+          type: "tool_result",
+          tool_use_id: "a",
+          content: [{ type: "text", text: "RA" }],
+        },
+        {
+          type: "tool_result",
+          tool_use_id: "b",
+          content: [{ type: "text", text: "RB" }],
+          is_error: true,
+        },
+      ],
+      created_at: "2026-07-11T09:30:00Z",
+    },
+  ],
+};
+
+async function testParallelToolPairingJson() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(parallelToolsDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  s.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await s.downloaded).blob.parts[0]));
+  const tools = obj.messages[0].tools;
+  check(
+    "parallel tool a paired correctly",
+    tools[0].name === "t1" &&
+      tools[0].result === "RA" &&
+      tools[0].is_error === false,
+  );
+  check(
+    "parallel tool b paired correctly",
+    tools[1].name === "t2" &&
+      tools[1].result === "RB" &&
+      tools[1].is_error === true,
+  );
+}
+await testParallelToolPairingJson();
+
+const thinkingOnlyDetail = {
+  uuid: CHAT,
+  name: "Thinking Only",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        {
+          type: "thinking",
+          thinking: "reasoning here",
+          hidden: false,
+          thinking_hidden: false,
+        },
+      ],
+      text: "FALLBACK BODY",
+      created_at: "2026-07-11T09:40:00Z",
+    },
+  ],
+};
+
+async function testMsgTextFallbackConsistency() {
+  const md = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(thinkingOnlyDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  md.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await md.downloaded).blob.parts[0]);
+  check("markdown includes msg.text fallback", text.includes("FALLBACK BODY"));
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(thinkingOnlyDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  check(
+    "json includes msg.text fallback",
+    obj.messages[0].text === "FALLBACK BODY",
+  );
+}
+await testMsgTextFallbackConsistency();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

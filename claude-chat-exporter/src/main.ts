@@ -23,10 +23,12 @@ interface ContentBlock {
   hidden?: boolean;
   thinking_hidden?: boolean;
   // tool_use blocks
+  id?: string;
   name?: string;
   input?: unknown;
   // tool_result blocks (content is an array of sub-blocks, or a string)
   content?: ContentBlock[] | string;
+  tool_use_id?: string;
   is_error?: boolean;
   // tool_result sub-block descriptors
   title?: string;
@@ -214,10 +216,13 @@ function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
       );
     }
   }
+  let emittedText = false;
   for (const block of msg.content ?? []) {
     if (block.type === "text") {
-      if (typeof block.text === "string" && block.text.trim())
+      if (typeof block.text === "string" && block.text.trim()) {
         out.push(block.text.trim());
+        emittedText = true;
+      }
     } else if (block.type === "thinking") {
       if (opts.includeThinking && isRenderableThinking(block)) {
         const body = truncate((block.thinking as string).trim(), MD_BLOCK_CAP);
@@ -249,9 +254,9 @@ function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
       }
     }
   }
-  let joined = out.join("\n\n").trim();
-  if (!joined && typeof msg.text === "string") joined = msg.text.trim();
-  return joined;
+  if (!emittedText && typeof msg.text === "string" && msg.text.trim())
+    out.push(msg.text.trim());
+  return out.join("\n\n").trim();
 }
 
 interface ToolRecord {
@@ -261,12 +266,7 @@ interface ToolRecord {
   is_error: boolean;
 }
 
-interface JsonAttachment {
-  file_name?: string;
-  file_size?: number;
-  file_type?: string;
-  extracted_content?: string;
-}
+type JsonAttachment = Attachment;
 
 interface StructuredMessage {
   text: string;
@@ -283,7 +283,8 @@ function collectStructured(
   const textParts: string[] = [];
   const thinking: string[] = [];
   const tools: ToolRecord[] = [];
-  let pending = -1; // index of the last tool_use awaiting its result
+  const byId = new Map<string, number>(); // tool_use.id -> index in tools
+  let pending = -1; // index of the last unmatched tool_use (id-less fallback)
   for (const block of msg.content ?? []) {
     if (block.type === "text") {
       if (typeof block.text === "string" && block.text.trim())
@@ -299,12 +300,23 @@ function collectStructured(
           result: "",
           is_error: false,
         });
-        pending = tools.length - 1;
+        const idx = tools.length - 1;
+        if (typeof block.id === "string" && block.id) byId.set(block.id, idx);
+        pending = idx;
       }
     } else if (block.type === "tool_result") {
       if (opts.includeToolCalls) {
         const result = extractToolResultText(block.content);
-        if (pending >= 0) {
+        const matchedIdx =
+          typeof block.tool_use_id === "string" && block.tool_use_id
+            ? byId.get(block.tool_use_id)
+            : undefined;
+        if (matchedIdx !== undefined) {
+          const rec = tools[matchedIdx] as ToolRecord;
+          rec.result = result;
+          rec.is_error = block.is_error === true;
+          if (pending === matchedIdx) pending = -1;
+        } else if (pending >= 0) {
           const rec = tools[pending] as ToolRecord;
           rec.result = result;
           rec.is_error = block.is_error === true;
