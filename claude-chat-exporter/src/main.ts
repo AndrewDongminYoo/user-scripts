@@ -823,42 +823,89 @@ async function exportAllConversations(
 }
 
 /** ---------- UI ---------- */
-const UI_ID = "__claude_export_ui";
 const ONE_ID = "__claude_export_btn";
 const ALL_ID = "__claude_export_all_btn";
-const ONE_LABEL = "⬇ Export MD";
-const ALL_LABEL = "⬇ Export All";
+const ONE_LABEL = "⬇ Export this chat";
+const ALL_LABEL = "⬇ Export all";
+const MODAL_ID = "__claude_export_modal";
+const TRIGGER_ID = "__claude_export_trigger";
 
 // GM_addStyle both styles the UI and, as a real @grant, forces Tampermonkey into
-// its sandboxed world so the script is exempt from claude.ai's CSP.
+// its sandboxed world so the script is exempt from claude.ai's CSP. Colors consume
+// Claude's <html>-scoped custom properties so light/dark themes track automatically.
+// (--df-* vars are sidebar-frame-scoped and empty at body level — not used here.)
 GM_addStyle(`
-  #${UI_ID} {
-    position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
-    display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  /* --- sidebar trigger (native nav-row look) --- */
+  #${TRIGGER_ID} {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    height: 32px; padding: 0 8px; margin: 2px 0;
+    border: none; background: transparent; cursor: pointer;
+    font: 400 14px/1 inherit; color: hsl(var(--text-300));
+    border-radius: 8px; text-align: left;
   }
-  #${UI_ID} button {
-    padding: 8px 14px; border-radius: 999px; border: none;
-    background: #d97757; color: #fff; font-size: 13px; font-weight: 600;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); cursor: pointer;
+  #${TRIGGER_ID}:hover { background: hsl(var(--bg-300)); color: hsl(var(--text-100)); }
+  #${TRIGGER_ID} svg { width: 16px; height: 16px; flex: 0 0 auto; }
+  /* --- fallback floating pill --- */
+  #${TRIGGER_ID}.cce-floating {
+    position: fixed; bottom: 20px; right: 20px; z-index: 2147483646;
+    width: auto; height: auto; padding: 8px 14px; margin: 0;
+    background: var(--cds-clay); color: #fff; font-weight: 600;
+    border-radius: 999px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   }
-  #${UI_ID} button:disabled { opacity: 0.6; cursor: default; }
-  #${UI_ID} #__claude_export_panel {
-    display: none; flex-direction: column; gap: 6px;
-    background: #2b2b2b; color: #fff; padding: 10px 12px; border-radius: 10px;
-    font-size: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  #${TRIGGER_ID}.cce-floating:hover { background: var(--cds-clay-emphasized); color: #fff; }
+  /* --- modal --- */
+  #${MODAL_ID} { position: fixed; inset: 0; z-index: 2147483647; display: none; }
+  #${MODAL_ID}.open { display: block; }
+  #${MODAL_ID} .cce-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
+  #${MODAL_ID} .cce-panel {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 64px); overflow-y: auto;
+    background: hsl(var(--bg-100)); color: hsl(var(--text-100));
+    border: 1px solid hsl(var(--border-300, var(--border-200)));
+    border-radius: var(--radius-lg, 12px);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.3); padding: 20px; font: 400 14px/1.4 inherit;
   }
-  #${UI_ID} #__claude_export_panel.open { display: flex; }
-  #${UI_ID} #__claude_export_panel label {
-    display: flex; gap: 6px; align-items: center; cursor: pointer;
-  }
+  #${MODAL_ID} .cce-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  #${MODAL_ID} .cce-title { font-size: 16px; font-weight: 600; }
+  #${MODAL_ID} .cce-x { border: none; background: transparent; cursor: pointer; font-size: 20px; line-height: 1; color: hsl(var(--text-300)); padding: 4px; border-radius: 6px; }
+  #${MODAL_ID} .cce-x:hover { background: hsl(var(--bg-300)); }
+  #${MODAL_ID} .cce-section { margin-bottom: 16px; }
+  /* segmented format control (real radios hidden) */
+  #${MODAL_ID} .cce-seg { display: flex; gap: 4px; padding: 3px; background: hsl(var(--bg-300)); border-radius: 8px; }
+  #${MODAL_ID} .cce-seg input { position: absolute; opacity: 0; pointer-events: none; }
+  #${MODAL_ID} .cce-seg label { flex: 1; text-align: center; padding: 6px 0; border-radius: 6px; cursor: pointer; color: hsl(var(--text-300)); }
+  #${MODAL_ID} .cce-seg input:checked + label { background: hsl(var(--bg-000)); color: hsl(var(--text-100)); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
+  /* switch rows (real checkboxes styled as track+knob) */
+  #${MODAL_ID} .cce-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
+  #${MODAL_ID} .cce-row.cce-disabled { opacity: 0.4; pointer-events: none; }
+  #${MODAL_ID} .cce-sw { position: relative; width: 36px; height: 20px; flex: 0 0 auto; }
+  #${MODAL_ID} .cce-sw input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  #${MODAL_ID} .cce-sw .cce-track { position: absolute; inset: 0; background: hsl(var(--bg-400)); border-radius: 999px; transition: background 0.15s; }
+  #${MODAL_ID} .cce-sw .cce-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform 0.15s; }
+  #${MODAL_ID} .cce-sw input:checked + .cce-track { background: var(--cds-clay); }
+  #${MODAL_ID} .cce-sw input:checked + .cce-track::after { transform: translateX(16px); }
+  /* actions + progress */
+  #${MODAL_ID} .cce-actions { display: flex; gap: 8px; margin-top: 8px; }
+  #${MODAL_ID} .cce-btn { flex: 1; padding: 10px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; }
+  #${MODAL_ID} .cce-btn:disabled { opacity: 0.6; cursor: default; }
+  #${MODAL_ID} .cce-primary { background: var(--cds-clay); color: #fff; }
+  #${MODAL_ID} .cce-primary:hover:not(:disabled) { background: var(--cds-clay-emphasized); }
+  #${MODAL_ID} .cce-secondary { background: hsl(var(--bg-300)); color: hsl(var(--text-100)); }
+  #${MODAL_ID} .cce-secondary:hover:not(:disabled) { background: hsl(var(--bg-400)); }
+  #${MODAL_ID} .cce-progress { margin-top: 10px; min-height: 18px; font-size: 13px; color: hsl(var(--text-300)); text-align: center; }
 `);
 
-function makeButton(id: string, label: string): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.id = id;
-  btn.type = "button";
-  btn.textContent = label;
-  return btn;
+// Wired up when the modal is built; referenced by runExport + syncMdOnly.
+let progressEl: HTMLDivElement | null = null;
+let mdOnlyRows: HTMLDivElement[] = [];
+
+function elc<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  cls?: string,
+): HTMLElementTagNameMap[K] {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  return e;
 }
 
 function runExport(
@@ -867,13 +914,16 @@ function runExport(
   task: () => Promise<string>,
 ): void {
   btn.disabled = true;
+  if (progressEl) progressEl.textContent = "";
   void (async (): Promise<void> => {
     try {
       const doneLabel = await task();
       btn.textContent = doneLabel;
+      if (progressEl) progressEl.textContent = doneLabel;
     } catch (err) {
       console.error("[claude-chat-exporter]", err);
       btn.textContent = "Failed";
+      if (progressEl) progressEl.textContent = "Failed";
     } finally {
       setTimeout(() => {
         btn.textContent = defaultLabel;
@@ -883,102 +933,128 @@ function runExport(
   })();
 }
 
-function buildPanel(): HTMLDivElement {
-  const panel = document.createElement("div");
-  panel.id = "__claude_export_panel";
-
-  const fmtMd = document.createElement("input");
-  fmtMd.type = "radio";
-  fmtMd.name = "cce_fmt";
-  fmtMd.id = "__cce_fmt_md";
-  fmtMd.checked = settings.format === "md";
-  const fmtJson = document.createElement("input");
-  fmtJson.type = "radio";
-  fmtJson.name = "cce_fmt";
-  fmtJson.id = "__cce_fmt_json";
-  fmtJson.checked = settings.format === "json";
-  fmtMd.addEventListener("change", () => {
-    if (fmtMd.checked) {
-      settings = { ...settings, format: "md" };
-      saveSettings(settings);
-    }
-  });
-  fmtJson.addEventListener("change", () => {
-    if (fmtJson.checked) {
-      settings = { ...settings, format: "json" };
-      saveSettings(settings);
-    }
-  });
-
-  const fm = document.createElement("input");
-  fm.type = "checkbox";
-  fm.id = "__cce_frontmatter";
-  fm.checked = settings.frontmatter;
-  fm.addEventListener("change", () => {
-    settings = { ...settings, frontmatter: fm.checked };
-    saveSettings(settings);
-  });
-
-  const ts = document.createElement("input");
-  ts.type = "checkbox";
-  ts.id = "__cce_timestamps";
-  ts.checked = settings.messageTimestamps;
-  ts.addEventListener("change", () => {
-    settings = { ...settings, messageTimestamps: ts.checked };
-    saveSettings(settings);
-  });
-
-  const mkCheck = (id: string, key: keyof BlockOpts): HTMLInputElement => {
-    const c = document.createElement("input");
-    c.type = "checkbox";
-    c.id = id;
-    c.checked = settings[key];
-    c.addEventListener("change", () => {
-      settings = { ...settings, [key]: c.checked };
-      saveSettings(settings);
-    });
-    return c;
-  };
-
-  const think = mkCheck("__cce_thinking", "includeThinking");
-  const tools = mkCheck("__cce_tools", "includeToolCalls");
-  const attach = mkCheck("__cce_attachments", "includeAttachments");
-
-  const row = (ctrl: HTMLElement, text: string): HTMLLabelElement => {
-    const l = document.createElement("label");
-    l.appendChild(ctrl);
-    l.appendChild(document.createTextNode(text));
-    return l;
-  };
-
-  panel.appendChild(row(fmtMd, "Markdown"));
-  panel.appendChild(row(fmtJson, "JSON"));
-  panel.appendChild(row(fm, "Frontmatter (md)"));
-  panel.appendChild(row(ts, "Message timestamps (md)"));
-  panel.appendChild(row(think, "Extended thinking"));
-  panel.appendChild(row(tools, "Tool calls"));
-  panel.appendChild(row(attach, "Attachments"));
-  return panel;
+function openModal(): void {
+  document.getElementById(MODAL_ID)?.classList.add("open");
 }
 
-function mountUI(): void {
-  if (document.getElementById(UI_ID)) return;
+function closeModal(): void {
+  document.getElementById(MODAL_ID)?.classList.remove("open");
+}
 
-  const container = document.createElement("div");
-  container.id = UI_ID;
+// md-only options (frontmatter, timestamps) are meaningless for JSON — dim them.
+function syncMdOnly(): void {
+  const dim = settings.format === "json";
+  for (const r of mdOnlyRows) r.classList.toggle("cce-disabled", dim);
+}
 
-  const panel = buildPanel();
-  const cfgBtn = makeButton("__claude_export_cfg_btn", "⚙️");
-  cfgBtn.addEventListener("click", () => {
-    panel.classList.toggle("open");
+// A labeled switch backed by a real checkbox with a stable id. The test harness
+// drives these by id, so keep real inputs and style the track/knob with CSS.
+function swRow(
+  id: string,
+  label: string,
+  key: "frontmatter" | "messageTimestamps" | keyof BlockOpts,
+): HTMLDivElement {
+  const row = elc("div", "cce-row");
+  const text = elc("span");
+  text.textContent = label;
+  const sw = elc("label", "cce-sw");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.id = id;
+  input.checked = settings[key];
+  input.addEventListener("change", () => {
+    settings = { ...settings, [key]: input.checked };
+    saveSettings(settings);
   });
+  const track = elc("span", "cce-track");
+  sw.appendChild(input);
+  sw.appendChild(track);
+  row.appendChild(text);
+  row.appendChild(sw);
+  return row;
+}
 
-  const allBtn = makeButton(ALL_ID, ALL_LABEL);
+function buildModal(): HTMLDivElement {
+  const modal = elc("div");
+  modal.id = MODAL_ID;
+  const backdrop = elc("div", "cce-backdrop");
+  backdrop.addEventListener("click", closeModal);
+  const panel = elc("div", "cce-panel");
+
+  const head = elc("div", "cce-head");
+  const title = elc("div", "cce-title");
+  title.textContent = "Exporter Settings";
+  const x = elc("button", "cce-x");
+  x.type = "button";
+  x.textContent = "✕";
+  x.addEventListener("click", closeModal);
+  head.appendChild(title);
+  head.appendChild(x);
+
+  // Format: real radios (stable ids) styled as a segmented control via CSS.
+  const seg = elc("div", "cce-seg cce-section");
+  const mkFmt = (id: string, val: Format, label: string): void => {
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "cce_fmt";
+    input.id = id;
+    input.checked = settings.format === val;
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      settings = { ...settings, format: val };
+      saveSettings(settings);
+      syncMdOnly();
+    });
+    const lab = document.createElement("label");
+    lab.htmlFor = id;
+    lab.textContent = label;
+    seg.appendChild(input);
+    seg.appendChild(lab);
+  };
+  mkFmt("__cce_fmt_md", "md", "Markdown");
+  mkFmt("__cce_fmt_json", "json", "JSON");
+
+  const opts = elc("div", "cce-section");
+  const fmRow = swRow("__cce_frontmatter", "Frontmatter (md)", "frontmatter");
+  const tsRow = swRow(
+    "__cce_timestamps",
+    "Message timestamps (md)",
+    "messageTimestamps",
+  );
+  mdOnlyRows = [fmRow, tsRow];
+  opts.appendChild(fmRow);
+  opts.appendChild(tsRow);
+  opts.appendChild(
+    swRow("__cce_thinking", "Extended thinking", "includeThinking"),
+  );
+  opts.appendChild(swRow("__cce_tools", "Tool calls", "includeToolCalls"));
+  opts.appendChild(
+    swRow("__cce_attachments", "Attachments", "includeAttachments"),
+  );
+
+  const actions = elc("div", "cce-actions");
+  const oneBtn = elc("button", "cce-btn cce-primary");
+  oneBtn.id = ONE_ID;
+  oneBtn.type = "button";
+  oneBtn.textContent = ONE_LABEL;
+  const allBtn = elc("button", "cce-btn cce-secondary");
+  allBtn.id = ALL_ID;
+  allBtn.type = "button";
+  allBtn.textContent = ALL_LABEL;
+  progressEl = elc("div", "cce-progress");
+
+  oneBtn.addEventListener("click", () => {
+    runExport(oneBtn, ONE_LABEL, async () => {
+      await exportCurrentConversation();
+      return "Done";
+    });
+  });
   allBtn.addEventListener("click", () => {
     runExport(allBtn, ALL_LABEL, async () => {
       const { exported, failed } = await exportAllConversations(
         (done, total) => {
-          allBtn.textContent = `Exporting ${done}/${total}…`;
+          if (progressEl)
+            progressEl.textContent = `Exporting ${done}/${total}…`;
         },
       );
       return failed > 0
@@ -986,27 +1062,91 @@ function mountUI(): void {
         : `Done (${exported})`;
     });
   });
+  actions.appendChild(oneBtn);
+  actions.appendChild(allBtn);
 
-  const oneBtn = makeButton(ONE_ID, ONE_LABEL);
-  oneBtn.addEventListener("click", () => {
-    runExport(oneBtn, ONE_LABEL, async () => {
-      await exportCurrentConversation();
-      return "Done";
+  panel.appendChild(head);
+  panel.appendChild(seg);
+  panel.appendChild(opts);
+  panel.appendChild(actions);
+  panel.appendChild(progressEl);
+  modal.appendChild(backdrop);
+  modal.appendChild(panel);
+  syncMdOnly();
+  return modal;
+}
+
+// Inline download glyph for the sidebar row (static markup, no user input).
+const DL_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg>`;
+
+function buildTrigger(floating: boolean): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.id = TRIGGER_ID;
+  btn.type = "button";
+  if (floating) {
+    btn.className = "cce-floating";
+    btn.textContent = "⬇ Export";
+  } else {
+    const icon = elc("span");
+    icon.innerHTML = DL_SVG;
+    const label = elc("span");
+    label.textContent = "Export";
+    btn.appendChild(icon);
+    btn.appendChild(label);
+  }
+  btn.addEventListener("click", openModal);
+  return btn;
+}
+
+function mountUI(): void {
+  // The modal lives on <body> once — it survives Claude's SPA sidebar re-renders
+  // and auto-themes via inherited <html> custom properties.
+  if (!document.getElementById(MODAL_ID)) {
+    document.body.appendChild(buildModal());
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeModal();
     });
-  });
-
-  container.appendChild(panel);
-  container.appendChild(cfgBtn);
-  container.appendChild(allBtn);
-  container.appendChild(oneBtn);
-  document.body.appendChild(container);
+  }
+  const sidebar = document.querySelector(".dframe-sidebar-body");
+  const existing = document.getElementById(TRIGGER_ID);
+  if (existing) {
+    // Keep the native row as-is; only act when a floating fallback (mounted
+    // before Claude rendered the sidebar) can now be upgraded into the sidebar.
+    if (!existing.classList.contains("cce-floating") || !sidebar) return;
+    existing.remove();
+  }
+  // Prefer a native sidebar row in the pinned bottom tray (above the account
+  // row); degrade to the sidebar body; finally fall back to a floating pill.
+  if (sidebar) {
+    const item = buildTrigger(false);
+    const tray = sidebar.querySelector(".df-bottom-tray");
+    if (tray) tray.insertBefore(item, tray.firstChild);
+    else sidebar.appendChild(item);
+  } else {
+    document.body.appendChild(buildTrigger(true));
+  }
 }
 
 mountUI();
 
-// Claude is a client-side SPA; re-mount the UI after navigations that may
-// replace large parts of the DOM.
+// Claude is a client-side SPA; re-mount after navigations that replace large
+// parts of the DOM. Debounced + guarded so our own insertion doesn't thrash the
+// observer into a mount loop.
+let remountQueued = false;
 const observer = new MutationObserver(() => {
-  if (!document.getElementById(UI_ID)) mountUI();
+  const trigger = document.getElementById(TRIGGER_ID);
+  // Re-run when anything is missing, OR when a floating fallback can now be
+  // upgraded into the sidebar that has since appeared. Otherwise stay quiet so
+  // our own insertion doesn't thrash the observer.
+  const canUpgrade =
+    trigger?.classList.contains("cce-floating") === true &&
+    document.querySelector(".dframe-sidebar-body") !== null;
+  if (trigger && document.getElementById(MODAL_ID) && !canUpgrade) return;
+  if (remountQueued) return;
+  remountQueued = true;
+  setTimeout(() => {
+    remountQueued = false;
+    mountUI();
+  }, 200);
 });
 observer.observe(document.documentElement, { childList: true, subtree: true });
