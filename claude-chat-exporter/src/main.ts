@@ -293,7 +293,7 @@ function collectStructured(
   const thinking: string[] = [];
   const tools: ToolRecord[] = [];
   const byId = new Map<string, number>(); // tool_use.id -> index in tools
-  let pending = -1; // index of the last unmatched tool_use (id-less fallback)
+  const pendingQueue: number[] = []; // FIFO of unmatched tool_use indices (id-less fallback)
   for (const block of msg.content ?? []) {
     const textContent = textBlockContent(block);
     if (textContent !== null) {
@@ -311,25 +311,28 @@ function collectStructured(
         });
         const idx = tools.length - 1;
         if (typeof block.id === "string" && block.id) byId.set(block.id, idx);
-        pending = idx;
+        pendingQueue.push(idx);
       }
     } else if (block.type === "tool_result") {
       if (opts.includeToolCalls) {
         const result = extractToolResultText(block.content);
-        const matchedIdx =
-          typeof block.tool_use_id === "string" && block.tool_use_id
-            ? byId.get(block.tool_use_id)
-            : undefined;
+        let matchedIdx: number | undefined;
+        if (typeof block.tool_use_id === "string" && block.tool_use_id) {
+          matchedIdx = byId.get(block.tool_use_id);
+        }
+        if (matchedIdx !== undefined) {
+          // id match: consume it from both the id map and the FIFO queue
+          byId.delete(block.tool_use_id as string);
+          const qi = pendingQueue.indexOf(matchedIdx);
+          if (qi !== -1) pendingQueue.splice(qi, 1);
+        } else {
+          // id-less (or unknown id): pair with the oldest unmatched tool_use
+          matchedIdx = pendingQueue.shift();
+        }
         if (matchedIdx !== undefined) {
           const rec = tools[matchedIdx] as ToolRecord;
           rec.result = result;
           rec.is_error = block.is_error === true;
-          if (pending === matchedIdx) pending = -1;
-        } else if (pending >= 0) {
-          const rec = tools[pending] as ToolRecord;
-          rec.result = result;
-          rec.is_error = block.is_error === true;
-          pending = -1;
         } else {
           tools.push({
             name: block.name ?? "tool",

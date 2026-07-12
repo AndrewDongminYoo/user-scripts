@@ -57,7 +57,7 @@ pnpm preview
   `renderBlocks` builds the Markdown body — document-order `<details>` sections, each truncated to `MD_BLOCK_CAP` (2000 chars).
   `collectStructured` builds the JSON body — typed `thinking[]` / `tools[]` / `attachments[]` arrays, untruncated.
   Keep both in sync when the block shape changes; they intentionally duplicate the block-walk instead of sharing one code path so Markdown truncation never leaks into JSON.
-- **Tool pairing:** in JSON (`collectStructured`), `tool_use`/`tool_result` blocks are paired by `tool_use_id` (a `Map<id, index>` keyed off `tool_use.id`), which correctly handles parallel tool calls; a document-order `pending` index is the fallback when ids are absent — verified 1:1 against live API responses. Markdown (`renderBlocks`) still renders every block in document order, unpaired.
+- **Tool pairing:** in JSON (`collectStructured`), `tool_use`/`tool_result` blocks are paired by `tool_use_id` (a `Map<id, index>` keyed off `tool_use.id`), which correctly handles parallel tool calls; a FIFO queue of unmatched `tool_use` indices is the document-order fallback when ids are absent (so id-less parallel calls still pair correctly) — verified 1:1 against live API responses. Markdown (`renderBlocks`) still renders every block in document order, unpaired.
   A `tool_result` with no preceding `tool_use` becomes its own record instead of being dropped.
 - **Deliberately not exported:** uploaded image attachments (`files[]`) and text-block `citations` are out of scope — only `attachments[].extracted_content` (text extracted server-side) and `content[]` blocks are read.
 - **Scope:** exports the operator's own conversations only. No detection evasion,

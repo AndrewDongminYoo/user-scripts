@@ -831,6 +831,60 @@ async function testUntypedTextBlocks() {
 }
 await testUntypedTextBlocks();
 
+// id-less parallel tool calls must pair by FIFO order, not overwrite a single
+// pending slot: `use1, use2, result1, result2` → result1→t1, result2→t2.
+const idlessParallelDetail = {
+  uuid: CHAT,
+  name: "IdlessParallel",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        { type: "tool_use", name: "t1", input: { x: 1 } },
+        { type: "tool_use", name: "t2", input: { y: 2 } },
+        { type: "tool_result", content: [{ type: "text", text: "RA" }] },
+        {
+          type: "tool_result",
+          content: [{ type: "text", text: "RB" }],
+          is_error: true,
+        },
+      ],
+      created_at: "2026-07-11T11:00:00Z",
+    },
+  ],
+};
+
+async function testIdlessParallelTools() {
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(idlessParallelDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const tools = JSON.parse(String((await js.downloaded).blob.parts[0]))
+    .messages[0].tools;
+  check("idless parallel: two tool records", tools.length === 2);
+  check(
+    "idless parallel: FIFO pairs RA->t1",
+    tools[0].name === "t1" &&
+      tools[0].result === "RA" &&
+      tools[0].is_error === false,
+  );
+  check(
+    "idless parallel: FIFO pairs RB->t2",
+    tools[1].name === "t2" &&
+      tools[1].result === "RB" &&
+      tools[1].is_error === true,
+  );
+}
+await testIdlessParallelTools();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
