@@ -21,11 +21,12 @@ function check(name, cond) {
 }
 
 // A fixture DOM node with just enough surface for the extractor.
-function node({ text = "", query = {}, queryAll = {} } = {}) {
+function node({ text = "", query = {}, queryAll = {}, attrs = {} } = {}) {
   return {
     textContent: text,
     querySelector: (sel) => query[sel] ?? null,
     querySelectorAll: (sel) => queryAll[sel] ?? [],
+    getAttribute: (k) => attrs[k] ?? null,
   };
 }
 
@@ -100,7 +101,11 @@ function makeSandbox({ pathname, title, turns, settings }) {
           t.responseNode ??
           elNode("div", t.response ? [textNode(t.response)] : []),
         "thinking-overlay": t.thinking ? node({ text: t.thinking }) : null,
-        ".file-preview-container": null,
+      },
+      queryAll: {
+        ".file-preview-container": (t.attachments ?? []).map((name) =>
+          node({ text: name }),
+        ),
       },
     }),
   );
@@ -357,6 +362,65 @@ function makeSandbox({ pathname, title, turns, settings }) {
     "code fence collapses trailing blank lines",
     out.includes("const y = 2;\n```") && !out.includes("const y = 2;\n\n\n```"),
   );
+}
+
+// --- Test: thinking + attachments capture ---
+{
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/mno345",
+    title: "Thinking test - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [
+      {
+        prompt: "Analyze this",
+        response: "Here's the analysis",
+        thinking: "reasoning step one",
+        attachments: ["report.pdf"],
+      },
+    ],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const out = blob.text;
+  check(
+    "thinking captured",
+    out.includes("Thinking") && out.includes("reasoning step"),
+  );
+  check("attachment name listed", out.includes("report.pdf"));
+}
+
+// --- Test: thinking omitted when includeThinking=false ---
+{
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/pqr678",
+    title: "Thinking off - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: false,
+      includeAttachments: true,
+    },
+    turns: [
+      {
+        prompt: "Analyze this",
+        response: "Here's the analysis",
+        thinking: "reasoning step one",
+      },
+    ],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const outOff = blob.text;
+  check("thinking omitted when off", !outOff.includes("reasoning step"));
 }
 
 if (failures) {

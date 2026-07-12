@@ -265,6 +265,16 @@ function htmlToMarkdown(root: Element | null): string {
 }
 
 /** ---------- Extraction ---------- */
+// Gemini collapses reasoning behind a toggle; expand before reading so the
+// text is in the DOM. Best-effort: click a control if the overlay is collapsed.
+function expandCollapsed(container: Element): void {
+  const overlay = container.querySelector(SEL.thinking);
+  if (!overlay) return;
+  const btn = overlay.querySelector("button, [role='button']");
+  const expanded = overlay.getAttribute("aria-expanded");
+  if (btn && expanded !== "true") (btn as HTMLElement).click();
+}
+
 function scrapeCurrentConversation(): Conversation {
   const id = getConversationId() ?? "";
   const turns: Turn[] = [];
@@ -274,8 +284,20 @@ function scrapeCurrentConversation(): Conversation {
     const responseMarkdown = htmlToMarkdown(
       c.querySelector(SEL.responseMarkdown),
     );
-    if (!prompt && !responseMarkdown) return;
-    turns.push({ index: i, prompt, attachments: [], responseMarkdown });
+    if (settings.includeThinking) expandCollapsed(c);
+    const thinking = settings.includeThinking
+      ? (c.querySelector(SEL.thinking)?.textContent ?? "").trim()
+      : "";
+    const attachments = settings.includeAttachments
+      ? Array.from(c.querySelectorAll(SEL.attachmentChip))
+          .map((a) => (a.textContent ?? "").trim())
+          .filter(Boolean)
+      : [];
+    if (!prompt && !responseMarkdown && !thinking && !attachments.length)
+      return;
+    const turn: Turn = { index: i, prompt, attachments, responseMarkdown };
+    if (thinking) turn.thinking = thinking;
+    turns.push(turn);
   });
   return {
     id,
@@ -286,11 +308,35 @@ function scrapeCurrentConversation(): Conversation {
 }
 
 /** ---------- Markdown renderer ---------- */
-function toMarkdown(conv: Conversation, _s: Settings): string {
-  const out: string[] = [`# ${conv.title}`, ""];
+function toMarkdown(conv: Conversation, s: Settings): string {
+  const out: string[] = [];
+  if (s.frontmatter) {
+    out.push(
+      "---",
+      `title: "${conv.title.replace(/"/g, '\\"')}"`,
+      `source: "${conv.url}"`,
+      `date: ${new Date().toISOString().slice(0, 10)}`,
+      "---",
+      "",
+    );
+  }
+  out.push(`# ${conv.title}`, "");
   for (const t of conv.turns) {
-    if (t.prompt) out.push("## 👤 User", "", t.prompt, "");
-    if (t.responseMarkdown) out.push("## ✦ Gemini", "", t.responseMarkdown, "");
+    if (t.prompt) {
+      out.push("## 👤 User", "");
+      if (s.includeAttachments && t.attachments.length)
+        out.push(...t.attachments.map((a) => `> 📎 ${a}`), "");
+      out.push(t.prompt, "");
+    }
+    if (t.responseMarkdown || t.thinking) {
+      out.push("## ✦ Gemini", "");
+      if (s.includeThinking && t.thinking)
+        out.push(
+          `<details><summary>🧠 Thinking</summary>\n\n${t.thinking}\n\n</details>`,
+          "",
+        );
+      if (t.responseMarkdown) out.push(t.responseMarkdown, "");
+    }
   }
   return out.join("\n");
 }
