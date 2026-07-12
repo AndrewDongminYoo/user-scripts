@@ -52,8 +52,14 @@ pnpm preview
   Tampermonkey run the script in its sandboxed world, which is exempt from the page
   CSP. `GM_addStyle` doubles as the button's CSS injector. The file download uses a
   `Blob` + temporary anchor, which works in the sandbox.
-- **Settings:** the ⚙️ panel persists `{ format, frontmatter, messageTimestamps }`
-  under the `cce_settings` key via `GM_getValue`/`GM_setValue`.
+- **Settings:** the ⚙️ panel persists `{ format, frontmatter, messageTimestamps, includeThinking, includeToolCalls, includeAttachments }` under the `cce_settings` key via `GM_getValue`/`GM_setValue`.
+- **Rich-content rendering seam:** two independent passes read the same `content[]` blocks.
+  `renderBlocks` builds the Markdown body — document-order `<details>` sections, each truncated to `MD_BLOCK_CAP` (2000 chars).
+  `collectStructured` builds the JSON body — typed `thinking[]` / `tools[]` / `attachments[]` arrays, untruncated.
+  Keep both in sync when the block shape changes; they intentionally duplicate the block-walk instead of sharing one code path so Markdown truncation never leaks into JSON.
+- **Tool pairing:** in JSON (`collectStructured`), `tool_use`/`tool_result` blocks are paired by `tool_use_id` (a `Map<id, index>` keyed off `tool_use.id`), which correctly handles parallel tool calls; a FIFO queue of unmatched `tool_use` indices is the document-order fallback when ids are absent (so id-less parallel calls still pair correctly) — verified 1:1 against live API responses. Markdown (`renderBlocks`) still renders every block in document order, unpaired.
+  A `tool_result` with no preceding `tool_use` becomes its own record instead of being dropped.
+- **Deliberately not exported:** uploaded image attachments (`files[]`) and text-block `citations` are out of scope — only `attachments[].extracted_content` (text extracted server-side) and `content[]` blocks are read.
 - **Scope:** exports the operator's own conversations only. No detection evasion,
   no mass collection, polite single-request fetches.
 
