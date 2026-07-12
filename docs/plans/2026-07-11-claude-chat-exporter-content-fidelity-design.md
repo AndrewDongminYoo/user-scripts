@@ -41,8 +41,14 @@ Out of scope (conscious drops, not oversights):
 - Content block types and counts (50 convs): `text` 526, `tool_use` 255,
   `tool_result` 255, `thinking` 42.
 - **`tool_use` and its `tool_result` always co-locate in the same message's
-  `content[]`** (85 messages had both; 0 split across messages). → Render blocks
-  in document order; **no `tool_use_id` pairing map is needed.**
+  `content[]`** (85 messages had both; 0 split across messages). Markdown renders
+  blocks in document order, unpaired. **Shipped refinement:** co-location does
+  not guarantee adjacency (parallel tool calls interleave `use, use, result,
+result`), so the JSON collector pairs `tool_result` to `tool_use` by
+  `tool_use_id` with a FIFO document-order fallback — not the plan's original
+  single-cursor, document-order-only pairing, which was replaced during the
+  final review. Source of truth: `collectStructured` in `src/main.ts` and
+  `claude-chat-exporter/AGENTS.md`.
 - **Senders are exactly `human` and `assistant`.** The existing binary role label
   is correct; no system / tool sender to mislabel.
 - `thinking` block keys: `thinking`, `summaries`, `cut_off`, `truncated`,
