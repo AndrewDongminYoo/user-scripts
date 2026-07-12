@@ -32,6 +32,18 @@ importers:
         specifier: ^8.0.6
         version: 8.0.6(postcss@8.5.15)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1))
 
+  gemini-chat-exporter:
+    devDependencies:
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.1.4
+        version: 8.1.4(@types/node@26.1.1)(esbuild@0.28.1)
+      vite-plugin-monkey:
+        specifier: ^8.0.6
+        version: 8.0.6(postcss@8.5.15)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1))
+
   wanted-applied-marker:
     devDependencies:
       '@types/greasemonkey':

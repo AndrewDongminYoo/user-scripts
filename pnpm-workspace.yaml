@@ -1,6 +1,7 @@
 packages:
   - wanted-applied-marker
   - claude-chat-exporter
+  - gemini-chat-exporter
 
 onlyBuiltDependencies:
   - esbuild
