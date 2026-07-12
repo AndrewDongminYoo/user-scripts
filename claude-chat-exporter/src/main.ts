@@ -18,6 +18,29 @@
 interface ContentBlock {
   type?: string;
   text?: string;
+  // thinking blocks
+  thinking?: string;
+  hidden?: boolean;
+  thinking_hidden?: boolean;
+  // tool_use blocks
+  id?: string;
+  name?: string;
+  input?: unknown;
+  // tool_result blocks (content is an array of sub-blocks, or a string)
+  content?: ContentBlock[] | string;
+  tool_use_id?: string;
+  is_error?: boolean;
+  // tool_result sub-block descriptors
+  title?: string;
+  url?: string;
+  file_path?: string;
+}
+
+interface Attachment {
+  file_name?: string;
+  file_size?: number;
+  file_type?: string;
+  extracted_content?: string;
 }
 
 interface ChatMessage {
@@ -25,6 +48,7 @@ interface ChatMessage {
   sender?: string;
   text?: string;
   content?: ContentBlock[];
+  attachments?: Attachment[];
   created_at?: string;
 }
 
@@ -59,6 +83,9 @@ interface Settings {
   format: Format;
   frontmatter: boolean;
   messageTimestamps: boolean;
+  includeThinking: boolean;
+  includeToolCalls: boolean;
+  includeAttachments: boolean;
 }
 
 const SETTINGS_KEY = "cce_settings";
@@ -66,7 +93,18 @@ const DEFAULT_SETTINGS: Settings = {
   format: "md",
   frontmatter: true,
   messageTimestamps: false,
+  includeThinking: true,
+  includeToolCalls: true,
+  includeAttachments: true,
 };
+
+const MD_BLOCK_CAP = 2000;
+
+interface BlockOpts {
+  includeThinking: boolean;
+  includeToolCalls: boolean;
+  includeAttachments: boolean;
+}
 
 function loadSettings(): Settings {
   try {
@@ -138,16 +176,190 @@ async function fetchConversationList(
 }
 
 /** ---------- Markdown rendering ---------- */
-function extractText(msg: ChatMessage): string {
+function truncate(s: string, cap: number): string {
+  return s.length > cap ? `${s.slice(0, cap)}\n… (truncated)` : s;
+}
+
+function isRenderableThinking(block: ContentBlock): boolean {
+  if (block.hidden === true || block.thinking_hidden === true) return false;
+  return typeof block.thinking === "string" && block.thinking.trim().length > 0;
+}
+
+// Extract readable text from a tool_result's `content` (array of sub-blocks or a string).
+function extractToolResultText(
+  content: ContentBlock[] | string | undefined,
+): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
   const parts: string[] = [];
-  for (const block of msg.content ?? []) {
-    if (typeof block.text === "string" && block.text.trim()) {
-      parts.push(block.text);
+  for (const el of content) {
+    if (typeof el.text === "string" && el.text.trim())
+      parts.push(el.text.trim());
+    else if (el.url) parts.push(el.title ? `${el.title} (${el.url})` : el.url);
+    else if (el.file_path ?? el.name)
+      parts.push((el.file_path ?? el.name) as string);
+  }
+  return parts.join("\n\n").trim();
+}
+
+// Treat a block as message text when it is a `text` block — or, per the legacy
+// documented shape `content: [{ text }]`, an untyped block carrying a string.
+// Both walkers share this predicate so Markdown and JSON never disagree.
+function textBlockContent(block: ContentBlock): string | null {
+  if (block.type != null && block.type !== "text") return null;
+  return typeof block.text === "string" && block.text.trim()
+    ? block.text.trim()
+    : null;
+}
+
+// Markdown body for one message: attachments first, then blocks in document order.
+function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
+  const out: string[] = [];
+  if (opts.includeAttachments) {
+    for (const a of msg.attachments ?? []) {
+      const body = (a.extracted_content ?? "").trim();
+      if (!body) continue;
+      const size =
+        typeof a.file_size === "number" ? ` (${a.file_size} bytes)` : "";
+      out.push(
+        `<details><summary>📎 ${a.file_name ?? "attachment"}${size}</summary>\n\n${truncate(body, MD_BLOCK_CAP)}\n\n</details>`,
+      );
     }
   }
-  let out = parts.join("\n\n").trim();
-  if (!out && typeof msg.text === "string") out = msg.text.trim();
-  return out;
+  let emittedText = false;
+  for (const block of msg.content ?? []) {
+    const textContent = textBlockContent(block);
+    if (textContent !== null) {
+      out.push(textContent);
+      emittedText = true;
+    } else if (block.type === "thinking") {
+      if (opts.includeThinking && isRenderableThinking(block)) {
+        const body = truncate((block.thinking as string).trim(), MD_BLOCK_CAP);
+        out.push(
+          `<details><summary>🧠 Extended thinking</summary>\n\n${body}\n\n</details>`,
+        );
+      }
+    } else if (block.type === "tool_use") {
+      if (opts.includeToolCalls) {
+        const input =
+          block.input === undefined ? "" : JSON.stringify(block.input, null, 2);
+        const body = truncate(input, MD_BLOCK_CAP);
+        out.push(
+          `<details><summary>🔧 ${block.name ?? "tool"}</summary>\n\n\`\`\`json\n${body}\n\`\`\`\n\n</details>`,
+        );
+      }
+    } else if (block.type === "tool_result") {
+      if (opts.includeToolCalls) {
+        const body = truncate(
+          extractToolResultText(block.content),
+          MD_BLOCK_CAP,
+        );
+        if (body) {
+          const err = block.is_error ? " · error" : "";
+          out.push(
+            `<details><summary>↳ Result${err}</summary>\n\n${body}\n\n</details>`,
+          );
+        }
+      }
+    }
+  }
+  if (!emittedText && typeof msg.text === "string" && msg.text.trim())
+    out.push(msg.text.trim());
+  return out.join("\n\n").trim();
+}
+
+interface ToolRecord {
+  name: string;
+  input: unknown;
+  result: string;
+  is_error: boolean;
+}
+
+type JsonAttachment = Attachment;
+
+interface StructuredMessage {
+  text: string;
+  thinking: string[];
+  tools: ToolRecord[];
+  attachments: JsonAttachment[];
+}
+
+// Structured collection for JSON: typed arrays, document-order tool pairing.
+function collectStructured(
+  msg: ChatMessage,
+  opts: BlockOpts,
+): StructuredMessage {
+  const textParts: string[] = [];
+  const thinking: string[] = [];
+  const tools: ToolRecord[] = [];
+  const byId = new Map<string, number>(); // tool_use.id -> index in tools
+  const pendingQueue: number[] = []; // FIFO of unmatched tool_use indices (id-less fallback)
+  for (const block of msg.content ?? []) {
+    const textContent = textBlockContent(block);
+    if (textContent !== null) {
+      textParts.push(textContent);
+    } else if (block.type === "thinking") {
+      if (opts.includeThinking && isRenderableThinking(block))
+        thinking.push((block.thinking as string).trim());
+    } else if (block.type === "tool_use") {
+      if (opts.includeToolCalls) {
+        tools.push({
+          name: block.name ?? "tool",
+          input: block.input ?? null,
+          result: "",
+          is_error: false,
+        });
+        const idx = tools.length - 1;
+        if (typeof block.id === "string" && block.id) byId.set(block.id, idx);
+        pendingQueue.push(idx);
+      }
+    } else if (block.type === "tool_result") {
+      if (opts.includeToolCalls) {
+        const result = extractToolResultText(block.content);
+        let matchedIdx: number | undefined;
+        if (typeof block.tool_use_id === "string" && block.tool_use_id) {
+          matchedIdx = byId.get(block.tool_use_id);
+        }
+        if (matchedIdx !== undefined) {
+          // id match: consume it from both the id map and the FIFO queue
+          byId.delete(block.tool_use_id as string);
+          const qi = pendingQueue.indexOf(matchedIdx);
+          if (qi !== -1) pendingQueue.splice(qi, 1);
+        } else {
+          // id-less (or unknown id): pair with the oldest unmatched tool_use
+          matchedIdx = pendingQueue.shift();
+        }
+        if (matchedIdx !== undefined) {
+          const rec = tools[matchedIdx] as ToolRecord;
+          rec.result = result;
+          rec.is_error = block.is_error === true;
+        } else {
+          tools.push({
+            name: block.name ?? "tool",
+            input: null,
+            result,
+            is_error: block.is_error === true,
+          });
+        }
+      }
+    }
+  }
+  let text = textParts.join("\n\n").trim();
+  if (!text && typeof msg.text === "string") text = msg.text.trim();
+  const attachments: JsonAttachment[] = [];
+  if (opts.includeAttachments) {
+    for (const a of msg.attachments ?? []) {
+      if ((a.extracted_content ?? "").trim()) {
+        attachments.push({
+          file_name: a.file_name,
+          file_size: a.file_size,
+          file_type: a.file_type,
+          extracted_content: a.extracted_content,
+        });
+      }
+    }
+  }
+  return { text, thinking, tools, attachments };
 }
 
 function roleLabel(sender: string | undefined): string {
@@ -222,7 +434,14 @@ function roleHeader(
 function toMarkdown(
   conv: Conversation,
   chatId: string,
-  opts: { frontmatter: boolean; messageTimestamps: boolean; meta: ConvMeta },
+  opts: {
+    frontmatter: boolean;
+    messageTimestamps: boolean;
+    meta: ConvMeta;
+    includeThinking: boolean;
+    includeToolCalls: boolean;
+    includeAttachments: boolean;
+  },
 ): string {
   const messages = conv.chat_messages ?? conv.messages ?? [];
   const title = (conv.name ?? "").trim() || "Claude conversation";
@@ -231,7 +450,11 @@ function toMarkdown(
   const turns: string[] = [];
   let rendered = 0;
   for (const msg of messages) {
-    const body = extractText(msg);
+    const body = renderBlocks(msg, {
+      includeThinking: opts.includeThinking,
+      includeToolCalls: opts.includeToolCalls,
+      includeAttachments: opts.includeAttachments,
+    });
     if (!body) continue;
     rendered++;
     turns.push(
@@ -261,9 +484,17 @@ interface JsonMessage {
   role: "user" | "assistant";
   text: string;
   created_at: string | null;
+  thinking?: string[];
+  tools?: ToolRecord[];
+  attachments?: JsonAttachment[];
 }
 
-function toJSON(conv: Conversation, chatId: string, meta: ConvMeta): string {
+function toJSON(
+  conv: Conversation,
+  chatId: string,
+  meta: ConvMeta,
+  opts: BlockOpts,
+): string {
   const messages = conv.chat_messages ?? conv.messages ?? [];
   const out = {
     title: (conv.name ?? "").trim() || "Claude conversation",
@@ -275,13 +506,23 @@ function toJSON(conv: Conversation, chatId: string, meta: ConvMeta): string {
     messages: [] as JsonMessage[],
   };
   for (const msg of messages) {
-    const text = extractText(msg);
-    if (!text) continue;
-    out.messages.push({
+    const st = collectStructured(msg, opts);
+    if (
+      !st.text &&
+      !st.thinking.length &&
+      !st.tools.length &&
+      !st.attachments.length
+    )
+      continue;
+    const m: JsonMessage = {
       role: msg.sender === "human" ? "user" : "assistant",
-      text,
+      text: st.text,
       created_at: msg.created_at ?? null,
-    });
+    };
+    if (st.thinking.length) m.thinking = st.thinking;
+    if (st.tools.length) m.tools = st.tools;
+    if (st.attachments.length) m.attachments = st.attachments;
+    out.messages.push(m);
   }
   return JSON.stringify(out, null, 2);
 }
@@ -292,9 +533,14 @@ function renderConversation(
   meta: ConvMeta,
   s: Settings,
 ): { text: string; extension: string; mime: string } {
+  const blockOpts: BlockOpts = {
+    includeThinking: s.includeThinking,
+    includeToolCalls: s.includeToolCalls,
+    includeAttachments: s.includeAttachments,
+  };
   if (s.format === "json") {
     return {
-      text: toJSON(conv, chatId, meta),
+      text: toJSON(conv, chatId, meta, blockOpts),
       extension: "json",
       mime: "application/json;charset=utf-8",
     };
@@ -304,6 +550,7 @@ function renderConversation(
       frontmatter: s.frontmatter,
       messageTimestamps: s.messageTimestamps,
       meta,
+      ...blockOpts,
     }),
     extension: "md",
     mime: "text/markdown;charset=utf-8",
@@ -662,6 +909,39 @@ function buildPanel(): HTMLDivElement {
     saveSettings(settings);
   });
 
+  const mkCheck = (
+    id: string,
+    checked: boolean,
+    apply: (v: boolean) => Settings,
+  ): HTMLInputElement => {
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.id = id;
+    c.checked = checked;
+    c.addEventListener("change", () => {
+      settings = apply(c.checked);
+      saveSettings(settings);
+    });
+    return c;
+  };
+
+  const think = mkCheck("__cce_thinking", settings.includeThinking, (v) => ({
+    ...settings,
+    includeThinking: v,
+  }));
+  const tools = mkCheck("__cce_tools", settings.includeToolCalls, (v) => ({
+    ...settings,
+    includeToolCalls: v,
+  }));
+  const attach = mkCheck(
+    "__cce_attachments",
+    settings.includeAttachments,
+    (v) => ({
+      ...settings,
+      includeAttachments: v,
+    }),
+  );
+
   const row = (ctrl: HTMLElement, text: string): HTMLLabelElement => {
     const l = document.createElement("label");
     l.appendChild(ctrl);
@@ -673,6 +953,9 @@ function buildPanel(): HTMLDivElement {
   panel.appendChild(row(fmtJson, "JSON"));
   panel.appendChild(row(fm, "Frontmatter (md)"));
   panel.appendChild(row(ts, "Message timestamps (md)"));
+  panel.appendChild(row(think, "Extended thinking"));
+  panel.appendChild(row(tools, "Tool calls"));
+  panel.appendChild(row(attach, "Attachments"));
   return panel;
 }
 

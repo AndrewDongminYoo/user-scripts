@@ -326,6 +326,565 @@ async function testExportAllSnapshotsSettings() {
 }
 await testExportAllSnapshotsSettings();
 
+const thinkingDetail = {
+  uuid: CHAT,
+  name: "Thinking",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        {
+          type: "thinking",
+          thinking: "step by step",
+          hidden: false,
+          thinking_hidden: false,
+        },
+        { type: "thinking", thinking: "  ", hidden: false }, // empty -> skipped
+        { type: "thinking", thinking: "secret", hidden: true }, // hidden -> skipped
+        { type: "text", text: "Answer" },
+      ],
+      created_at: "2026-07-11T09:00:00Z",
+    },
+  ],
+};
+
+async function testThinkingMarkdown() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) => {
+      if (url.includes("/chat_conversations/")) return jsonRes(thinkingDetail);
+      throw new Error("unexpected " + url);
+    },
+  });
+  s.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await s.downloaded).blob.parts[0]);
+  check(
+    "thinking details rendered",
+    text.includes("<details><summary>🧠 Extended thinking</summary>"),
+  );
+  check("thinking body present", text.includes("step by step"));
+  check(
+    "empty thinking skipped",
+    !text.includes("<summary>🧠 Extended thinking</summary>\n\n  "),
+  );
+  check("hidden thinking skipped", !text.includes("secret"));
+  check("text still rendered", text.includes("Answer"));
+}
+await testThinkingMarkdown();
+
+async function testThinkingToggleOffAndJson() {
+  const off = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false, includeThinking: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(thinkingDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  off.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const offText = String((await off.downloaded).blob.parts[0]);
+  check("thinking omitted when toggle off", !offText.includes("🧠"));
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(thinkingDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  check(
+    "json thinking array",
+    Array.isArray(obj.messages[0].thinking) &&
+      obj.messages[0].thinking[0] === "step by step",
+  );
+  check(
+    "json thinking excludes hidden/empty",
+    obj.messages[0].thinking.length === 1,
+  );
+}
+await testThinkingToggleOffAndJson();
+
+const bigOutput = "x".repeat(2500);
+const toolDetail = {
+  uuid: CHAT,
+  name: "Tools",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        { type: "text", text: "Running it" },
+        { type: "tool_use", name: "bash_tool", input: { command: "ls" } },
+        {
+          type: "tool_result",
+          is_error: false,
+          content: [{ type: "text", text: bigOutput }],
+        },
+        { type: "tool_use", name: "web_search", input: { query: "q" } },
+        {
+          type: "tool_result",
+          is_error: true,
+          content: [{ type: "text", text: "boom" }],
+        },
+      ],
+      created_at: "2026-07-11T09:10:00Z",
+    },
+  ],
+};
+
+async function testToolsMarkdown() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(toolDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  s.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await s.downloaded).blob.parts[0]);
+  check(
+    "tool_use summary rendered",
+    text.includes("<details><summary>🔧 bash_tool</summary>"),
+  );
+  check("tool input as json fence", text.includes('"command": "ls"'));
+  check(
+    "tool_use precedes tool_result",
+    text.indexOf("🔧 bash_tool") < text.indexOf("↳ Result"),
+  );
+  check(
+    "tool_result error flagged",
+    text.includes("<details><summary>↳ Result · error</summary>"),
+  );
+  check("long tool result truncated", text.includes("… (truncated)"));
+  check("md cap respected", !text.includes("x".repeat(2100)));
+}
+await testToolsMarkdown();
+
+async function testToolsJsonAndToggle() {
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(toolDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  const tools = obj.messages[0].tools;
+  check("json two tool records", Array.isArray(tools) && tools.length === 2);
+  check(
+    "json tool name+input",
+    tools[0].name === "bash_tool" && tools[0].input.command === "ls",
+  );
+  check(
+    "json tool result full (untruncated)",
+    tools[0].result.length === 2500 && !tools[0].result.includes("truncated"),
+  );
+  check("json tool error flag", tools[1].is_error === true);
+
+  const off = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false, includeToolCalls: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(toolDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  off.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const offText = String((await off.downloaded).blob.parts[0]);
+  check(
+    "tools omitted when toggle off",
+    !offText.includes("🔧") && !offText.includes("↳ Result"),
+  );
+  check("text kept when tools off", offText.includes("Running it"));
+}
+await testToolsJsonAndToggle();
+
+const attachDetail = {
+  uuid: CHAT,
+  name: "Attach",
+  chat_messages: [
+    {
+      sender: "human",
+      content: [{ type: "text", text: "See attached" }],
+      attachments: [
+        {
+          file_name: "spec.txt",
+          file_size: 42,
+          file_type: "text/plain",
+          extracted_content: "PASTED BODY",
+        },
+        { file_name: "empty.txt", file_size: 0, extracted_content: "   " }, // skipped
+      ],
+      created_at: "2026-07-11T09:20:00Z",
+    },
+  ],
+};
+
+async function testAttachmentsMarkdownAndJson() {
+  const md = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(attachDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  md.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await md.downloaded).blob.parts[0]);
+  check(
+    "attachment summary rendered",
+    text.includes("<details><summary>📎 spec.txt (42 bytes)</summary>"),
+  );
+  check("attachment body rendered", text.includes("PASTED BODY"));
+  check(
+    "attachment appears before message text",
+    text.indexOf("📎 spec.txt") < text.indexOf("See attached"),
+  );
+  check("empty attachment skipped", !text.includes("empty.txt"));
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(attachDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  const att = obj.messages[0].attachments;
+  check("json attachments array", Array.isArray(att) && att.length === 1);
+  check(
+    "json attachment fields",
+    att[0].file_name === "spec.txt" &&
+      att[0].file_size === 42 &&
+      att[0].extracted_content === "PASTED BODY",
+  );
+
+  const off = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false, includeAttachments: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(attachDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  off.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  check(
+    "attachments omitted when toggle off",
+    !String((await off.downloaded).blob.parts[0]).includes("📎"),
+  );
+}
+await testAttachmentsMarkdownAndJson();
+
+async function testContentToggles() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: "/new",
+    settings: undefined,
+    fetchImpl: () => {
+      throw new Error("no fetch");
+    },
+  });
+  const think = s.allEls.find((e) => e.id === "__cce_thinking");
+  const tools = s.allEls.find((e) => e.id === "__cce_tools");
+  const attach = s.allEls.find((e) => e.id === "__cce_attachments");
+  check("thinking checkbox exists", !!think);
+  check("tools checkbox exists", !!tools);
+  check("attachments checkbox exists", !!attach);
+  check("thinking default checked", think.checked === true);
+  think.checked = false;
+  think._on.change?.();
+  check(
+    "unchecking thinking persists",
+    s.gmStore.cce_settings.includeThinking === false,
+  );
+  tools.checked = false;
+  tools._on.change?.();
+  check(
+    "unchecking tools persists",
+    s.gmStore.cce_settings.includeToolCalls === false,
+  );
+  attach.checked = false;
+  attach._on.change?.();
+  check(
+    "unchecking attachments persists",
+    s.gmStore.cce_settings.includeAttachments === false,
+  );
+}
+await testContentToggles();
+
+const parallelToolsDetail = {
+  uuid: CHAT,
+  name: "Parallel Tools",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        { type: "tool_use", id: "a", name: "t1", input: { x: 1 } },
+        { type: "tool_use", id: "b", name: "t2", input: { y: 2 } },
+        {
+          type: "tool_result",
+          tool_use_id: "a",
+          content: [{ type: "text", text: "RA" }],
+        },
+        {
+          type: "tool_result",
+          tool_use_id: "b",
+          content: [{ type: "text", text: "RB" }],
+          is_error: true,
+        },
+      ],
+      created_at: "2026-07-11T09:30:00Z",
+    },
+  ],
+};
+
+async function testParallelToolPairingJson() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(parallelToolsDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  s.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await s.downloaded).blob.parts[0]));
+  const tools = obj.messages[0].tools;
+  check(
+    "parallel tool a paired correctly",
+    tools[0].name === "t1" &&
+      tools[0].result === "RA" &&
+      tools[0].is_error === false,
+  );
+  check(
+    "parallel tool b paired correctly",
+    tools[1].name === "t2" &&
+      tools[1].result === "RB" &&
+      tools[1].is_error === true,
+  );
+}
+await testParallelToolPairingJson();
+
+const thinkingOnlyDetail = {
+  uuid: CHAT,
+  name: "Thinking Only",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        {
+          type: "thinking",
+          thinking: "reasoning here",
+          hidden: false,
+          thinking_hidden: false,
+        },
+      ],
+      text: "FALLBACK BODY",
+      created_at: "2026-07-11T09:40:00Z",
+    },
+  ],
+};
+
+async function testMsgTextFallbackConsistency() {
+  const md = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(thinkingOnlyDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  md.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await md.downloaded).blob.parts[0]);
+  check("markdown includes msg.text fallback", text.includes("FALLBACK BODY"));
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(thinkingOnlyDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  check(
+    "json includes msg.text fallback",
+    obj.messages[0].text === "FALLBACK BODY",
+  );
+}
+await testMsgTextFallbackConsistency();
+
+// A `text` block without a `type` (the legacy documented shape
+// `content: [{ text }]`) must still count as message text in both walkers —
+// in document order, not via the msg.text fallback.
+const untypedDetail = {
+  uuid: CHAT,
+  name: "Untyped",
+  chat_messages: [
+    {
+      sender: "human",
+      content: [{ text: "typeless question" }],
+      created_at: "2026-07-11T10:00:00Z",
+    },
+    {
+      sender: "assistant",
+      content: [
+        { type: "thinking", thinking: "hmm" },
+        { text: "typeless answer" },
+      ],
+      created_at: "2026-07-11T10:01:00Z",
+    },
+  ],
+};
+
+async function testUntypedTextBlocks() {
+  const md = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(untypedDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  md.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await md.downloaded).blob.parts[0]);
+  check(
+    "untyped text block rendered (md, human)",
+    text.includes("typeless question"),
+  );
+  check(
+    "untyped text block rendered with rich block (md)",
+    text.includes("typeless answer"),
+  );
+  check(
+    "untyped text in document order (after thinking, not fallback)",
+    text.indexOf("Extended thinking") < text.indexOf("typeless answer"),
+  );
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(untypedDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  check(
+    "untyped text in json (human)",
+    obj.messages[0].text === "typeless question",
+  );
+  check(
+    "untyped text in json (assistant, with thinking)",
+    obj.messages[1].text === "typeless answer",
+  );
+}
+await testUntypedTextBlocks();
+
+// id-less parallel tool calls must pair by FIFO order, not overwrite a single
+// pending slot: `use1, use2, result1, result2` → result1→t1, result2→t2.
+const idlessParallelDetail = {
+  uuid: CHAT,
+  name: "IdlessParallel",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        { type: "tool_use", name: "t1", input: { x: 1 } },
+        { type: "tool_use", name: "t2", input: { y: 2 } },
+        { type: "tool_result", content: [{ type: "text", text: "RA" }] },
+        {
+          type: "tool_result",
+          content: [{ type: "text", text: "RB" }],
+          is_error: true,
+        },
+      ],
+      created_at: "2026-07-11T11:00:00Z",
+    },
+  ],
+};
+
+async function testIdlessParallelTools() {
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(idlessParallelDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const tools = JSON.parse(String((await js.downloaded).blob.parts[0]))
+    .messages[0].tools;
+  check("idless parallel: two tool records", tools.length === 2);
+  check(
+    "idless parallel: FIFO pairs RA->t1",
+    tools[0].name === "t1" &&
+      tools[0].result === "RA" &&
+      tools[0].is_error === false,
+  );
+  check(
+    "idless parallel: FIFO pairs RB->t2",
+    tools[1].name === "t2" &&
+      tools[1].result === "RB" &&
+      tools[1].is_error === true,
+  );
+}
+await testIdlessParallelTools();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
