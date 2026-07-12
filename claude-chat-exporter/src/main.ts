@@ -202,6 +202,16 @@ function extractToolResultText(
   return parts.join("\n\n").trim();
 }
 
+// Treat a block as message text when it is a `text` block — or, per the legacy
+// documented shape `content: [{ text }]`, an untyped block carrying a string.
+// Both walkers share this predicate so Markdown and JSON never disagree.
+function textBlockContent(block: ContentBlock): string | null {
+  if (block.type != null && block.type !== "text") return null;
+  return typeof block.text === "string" && block.text.trim()
+    ? block.text.trim()
+    : null;
+}
+
 // Markdown body for one message: attachments first, then blocks in document order.
 function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
   const out: string[] = [];
@@ -218,11 +228,10 @@ function renderBlocks(msg: ChatMessage, opts: BlockOpts): string {
   }
   let emittedText = false;
   for (const block of msg.content ?? []) {
-    if (block.type === "text") {
-      if (typeof block.text === "string" && block.text.trim()) {
-        out.push(block.text.trim());
-        emittedText = true;
-      }
+    const textContent = textBlockContent(block);
+    if (textContent !== null) {
+      out.push(textContent);
+      emittedText = true;
     } else if (block.type === "thinking") {
       if (opts.includeThinking && isRenderableThinking(block)) {
         const body = truncate((block.thinking as string).trim(), MD_BLOCK_CAP);
@@ -286,9 +295,9 @@ function collectStructured(
   const byId = new Map<string, number>(); // tool_use.id -> index in tools
   let pending = -1; // index of the last unmatched tool_use (id-less fallback)
   for (const block of msg.content ?? []) {
-    if (block.type === "text") {
-      if (typeof block.text === "string" && block.text.trim())
-        textParts.push(block.text.trim());
+    const textContent = textBlockContent(block);
+    if (textContent !== null) {
+      textParts.push(textContent);
     } else if (block.type === "thinking") {
       if (opts.includeThinking && isRenderableThinking(block))
         thinking.push((block.thinking as string).trim());
