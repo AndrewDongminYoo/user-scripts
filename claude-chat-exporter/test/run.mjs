@@ -757,6 +757,80 @@ async function testMsgTextFallbackConsistency() {
 }
 await testMsgTextFallbackConsistency();
 
+// A `text` block without a `type` (the legacy documented shape
+// `content: [{ text }]`) must still count as message text in both walkers —
+// in document order, not via the msg.text fallback.
+const untypedDetail = {
+  uuid: CHAT,
+  name: "Untyped",
+  chat_messages: [
+    {
+      sender: "human",
+      content: [{ text: "typeless question" }],
+      created_at: "2026-07-11T10:00:00Z",
+    },
+    {
+      sender: "assistant",
+      content: [
+        { type: "thinking", thinking: "hmm" },
+        { text: "typeless answer" },
+      ],
+      created_at: "2026-07-11T10:01:00Z",
+    },
+  ],
+};
+
+async function testUntypedTextBlocks() {
+  const md = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(untypedDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  md.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await md.downloaded).blob.parts[0]);
+  check(
+    "untyped text block rendered (md, human)",
+    text.includes("typeless question"),
+  );
+  check(
+    "untyped text block rendered with rich block (md)",
+    text.includes("typeless answer"),
+  );
+  check(
+    "untyped text in document order (after thinking, not fallback)",
+    text.indexOf("Extended thinking") < text.indexOf("typeless answer"),
+  );
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(untypedDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  check(
+    "untyped text in json (human)",
+    obj.messages[0].text === "typeless question",
+  );
+  check(
+    "untyped text in json (assistant, with thinking)",
+    obj.messages[1].text === "typeless answer",
+  );
+}
+await testUntypedTextBlocks();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
