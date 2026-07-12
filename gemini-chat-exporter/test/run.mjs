@@ -281,6 +281,84 @@ function makeSandbox({ pathname, title, turns, settings }) {
   );
 }
 
+// --- Test: nested lists, div-wrapped blocks, OL/blockquote/em, code fence trailing newlines ---
+{
+  const md = elNode("div", [
+    // nested list: marker + 2-space indent per depth level (review finding #1)
+    elNode("ul", [
+      elNode("li", [
+        textNode("outer"),
+        elNode("ul", [elNode("li", [textNode("inner")])]),
+      ]),
+    ]),
+    // div wrapping block children must recurse, not flatten (review finding #2)
+    elNode("div", [
+      elNode("p", [textNode("wrapped paragraph")]),
+      elNode("h3", [textNode("Wrapped Heading")]),
+    ]),
+    // ordered list markers (review finding #3)
+    elNode("ol", [
+      elNode("li", [textNode("first")]),
+      elNode("li", [textNode("second")]),
+    ]),
+    // blockquote prefix (review finding #3)
+    elNode("blockquote", [textNode("quoted text")]),
+    // em/i italic (review finding #3)
+    elNode("p", [
+      textNode("An "),
+      elNode("em", [textNode("italic")]),
+      textNode(" word."),
+    ]),
+    // multiple trailing newlines inside a code fence must collapse (minor fix)
+    elNode("pre", [
+      elNode("code", [textNode("const y = 2;\n\n\n")], {
+        class: "language-js",
+      }),
+    ]),
+  ]);
+
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/jkl012",
+    title: "Review fixes - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Fixes", responseNode: md }],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const out = blob.text;
+  check("nested list: outer marker", out.includes("- outer"));
+  check("nested list: inner indented 2 spaces", out.includes("\n  - inner"));
+  check(
+    "div-wrapped blocks recurse (paragraph)",
+    out.includes("wrapped paragraph"),
+  );
+  check(
+    "div-wrapped blocks recurse (heading)",
+    out.includes("### Wrapped Heading"),
+  );
+  check(
+    "div-wrapped blocks keep block separation",
+    out.includes("wrapped paragraph\n\n### Wrapped Heading"),
+  );
+  check(
+    "ordered list markers",
+    out.includes("1. first") && out.includes("2. second"),
+  );
+  check("blockquote prefix", out.includes("> quoted text"));
+  check("em -> *italic*", out.includes("*italic*"));
+  check(
+    "code fence collapses trailing blank lines",
+    out.includes("const y = 2;\n```") && !out.includes("const y = 2;\n\n\n```"),
+  );
+}
+
 if (failures) {
   console.error(`\n${failures} failing`);
   process.exit(1);

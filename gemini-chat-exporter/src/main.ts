@@ -134,13 +134,28 @@ function childrenInline(el: Element): string {
   return s;
 }
 
-function listMd(el: Element, ordered: boolean): string {
+function listMd(el: Element, ordered: boolean, depth = 0): string {
+  const indent = "  ".repeat(depth);
   const lines: string[] = [];
   let n = 1;
   el.childNodes.forEach((c) => {
     if (c.nodeType === 1 && (c as Element).nodeName === "LI") {
+      const li = c as Element;
       const marker = ordered ? `${n++}.` : "-";
-      lines.push(`${marker} ${childrenInline(c as Element).trim()}`);
+      let inline = "";
+      const nested: string[] = [];
+      li.childNodes.forEach((child) => {
+        const name = child.nodeType === 1 ? (child as Element).nodeName : "";
+        if (name === "UL" || name === "OL") {
+          nested.push(listMd(child as Element, name === "OL", depth + 1));
+        } else {
+          inline += inlineMd(child);
+        }
+      });
+      lines.push(`${indent}${marker} ${inline.trim()}`);
+      nested.forEach((n2) => {
+        if (n2) lines.push(n2);
+      });
     }
   });
   return lines.join("\n");
@@ -176,6 +191,35 @@ function tableMd(el: Element): string {
   return [header, sep, body].filter(Boolean).join("\n");
 }
 
+/** Joins an element's block-level children with blank lines (recursive block walk). */
+function blocksOf(el: Element): string {
+  const blocks: string[] = [];
+  el.childNodes.forEach((node) => {
+    if (node.nodeType === 3) {
+      const t = (node.textContent ?? "").trim();
+      if (t) blocks.push(t);
+    } else if (node.nodeType === 1) {
+      const child = node as Element;
+      if (BLOCK_TAGS.has(child.nodeName)) blocks.push(blockMd(child));
+      else {
+        const inline = inlineMd(child).trim();
+        if (inline) blocks.push(inline);
+      }
+    }
+  });
+  return blocks.filter(Boolean).join("\n\n").trim();
+}
+
+/** True if any direct child is a block-level element (see BLOCK_TAGS). */
+function hasBlockChildren(el: Element): boolean {
+  let found = false;
+  el.childNodes.forEach((c) => {
+    if (c.nodeType === 1 && BLOCK_TAGS.has((c as Element).nodeName))
+      found = true;
+  });
+  return found;
+}
+
 function blockMd(el: Element): string {
   switch (el.nodeName) {
     case "H1":
@@ -206,31 +250,18 @@ function blockMd(el: Element): string {
       const code = el.querySelector("code");
       const lang = code ? codeLang(code) : "";
       const body = (code ?? el).textContent ?? "";
-      return `\`\`\`${lang}\n${body.replace(/\n$/, "")}\n\`\`\``;
+      return `\`\`\`${lang}\n${body.replace(/\n+$/, "")}\n\`\`\``;
     }
     case "P":
-    default:
       return childrenInline(el).trim();
+    default:
+      return hasBlockChildren(el) ? blocksOf(el) : childrenInline(el).trim();
   }
 }
 
 function htmlToMarkdown(root: Element | null): string {
   if (!root) return "";
-  const blocks: string[] = [];
-  root.childNodes.forEach((node) => {
-    if (node.nodeType === 3) {
-      const t = (node.textContent ?? "").trim();
-      if (t) blocks.push(t);
-    } else if (node.nodeType === 1) {
-      const el = node as Element;
-      if (BLOCK_TAGS.has(el.nodeName)) blocks.push(blockMd(el));
-      else {
-        const inline = inlineMd(el).trim();
-        if (inline) blocks.push(inline);
-      }
-    }
-  });
-  return blocks.filter(Boolean).join("\n\n").trim();
+  return blocksOf(root);
 }
 
 /** ---------- Extraction ---------- */
