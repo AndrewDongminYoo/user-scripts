@@ -683,11 +683,6 @@ function buildModal(): HTMLDivElement {
   return modal;
 }
 
-// Inline download glyph for the sidebar row (static markup, no user input —
-// assigning it via innerHTML is XSS-safe; scraped conversation content never
-// flows through innerHTML, only textContent/Markdown strings).
-const DL_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg>`;
-
 function buildTrigger(floating: boolean): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.id = TRIGGER_ID;
@@ -697,7 +692,22 @@ function buildTrigger(floating: boolean): HTMLButtonElement {
     btn.textContent = "⬇ Export";
   } else {
     const icon = elc("span", "gce-lead");
-    icon.innerHTML = DL_SVG;
+    // Gemini enforces a Trusted Types CSP: assigning a string to innerHTML
+    // throws a TrustedHTML error even for static, XSS-safe markup like this
+    // glyph. Build the SVG via createElementNS instead — do not "simplify"
+    // this back to innerHTML.
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("d", "M12 3v12m0 0l-4-4m4 4l4-4M4 21h16");
+    svg.appendChild(path);
+    icon.appendChild(svg);
     const label = elc("span");
     label.textContent = "Export";
     btn.appendChild(icon);
@@ -707,13 +717,20 @@ function buildTrigger(floating: boolean): HTMLButtonElement {
   return btn;
 }
 
+// mountUI can rebuild the modal across reconciliation passes; bind the
+// Escape listener at most once so it doesn't accumulate duplicates.
+let escBound = false;
+
 function mountUI(): void {
   // The modal lives on <body> once and is toggled open/closed via CSS class.
   if (!document.getElementById(MODAL_ID)) {
     document.body.appendChild(buildModal());
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") closeModal();
-    });
+    if (!escBound) {
+      escBound = true;
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeModal();
+      });
+    }
   }
   // Gemini's sidebar is a collapsible drawer: mat-nav-list is only in the DOM
   // while the drawer is open (verified live 2026-07-12). Prepend the native
