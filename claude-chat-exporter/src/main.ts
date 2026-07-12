@@ -1107,10 +1107,16 @@ function mountUI(): void {
       if (e.key === "Escape") closeModal();
     });
   }
-  if (document.getElementById(TRIGGER_ID)) return;
+  const sidebar = document.querySelector(".dframe-sidebar-body");
+  const existing = document.getElementById(TRIGGER_ID);
+  if (existing) {
+    // Keep the native row as-is; only act when a floating fallback (mounted
+    // before Claude rendered the sidebar) can now be upgraded into the sidebar.
+    if (!existing.classList.contains("cce-floating") || !sidebar) return;
+    existing.remove();
+  }
   // Prefer a native sidebar row in the pinned bottom tray (above the account
   // row); degrade to the sidebar body; finally fall back to a floating pill.
-  const sidebar = document.querySelector(".dframe-sidebar-body");
   if (sidebar) {
     const item = buildTrigger(false);
     const tray = sidebar.querySelector(".df-bottom-tray");
@@ -1128,8 +1134,14 @@ mountUI();
 // observer into a mount loop.
 let remountQueued = false;
 const observer = new MutationObserver(() => {
-  if (document.getElementById(TRIGGER_ID) && document.getElementById(MODAL_ID))
-    return;
+  const trigger = document.getElementById(TRIGGER_ID);
+  // Re-run when anything is missing, OR when a floating fallback can now be
+  // upgraded into the sidebar that has since appeared. Otherwise stay quiet so
+  // our own insertion doesn't thrash the observer.
+  const canUpgrade =
+    trigger?.classList.contains("cce-floating") === true &&
+    document.querySelector(".dframe-sidebar-body") !== null;
+  if (trigger && document.getElementById(MODAL_ID) && !canUpgrade) return;
   if (remountQueued) return;
   remountQueued = true;
   setTimeout(() => {
