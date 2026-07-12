@@ -285,35 +285,78 @@ function expandCollapsed(container: Element): void {
   if (btn) (btn as HTMLElement).click();
 }
 
-function scrapeCurrentConversation(): Conversation {
+function turnKey(prompt: string, ordinal: number): string {
+  // Prompt text + ordinal is stable across re-render; enough to dedupe turns
+  // whether nodes persist or recycle.
+  return `${ordinal}::${prompt.slice(0, 80)}`;
+}
+
+// Long conversations lazy-load older turns into the scroller as it nears the
+// top. Scroll to top repeatedly until the turn count stops growing across two
+// consecutive passes, so scrapeCurrentConversation sees the full history
+// regardless of whether Gemini virtualizes/recycles DOM nodes.
+async function ensureAllTurnsLoaded(): Promise<void> {
+  const scroller = document.querySelector(SEL.scroller);
+  if (!scroller) return;
+  let prev = -1;
+  let stable = 0;
+  for (let i = 0; i < 60 && stable < 2; i++) {
+    const count = document.querySelectorAll(SEL.turn).length;
+    stable = count === prev ? stable + 1 : 0;
+    prev = count;
+    scroller.scrollTop = 0;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
+
+async function scrapeCurrentConversation(): Promise<Conversation> {
   const id = getConversationId() ?? "";
-  const turns: Turn[] = [];
-  const containers = document.querySelectorAll(SEL.turn);
-  containers.forEach((c, i) => {
-    const prompt = (c.querySelector(SEL.queryText)?.textContent ?? "").trim();
-    const responseMarkdown = htmlToMarkdown(
-      c.querySelector(SEL.responseMarkdown),
-    );
-    if (settings.includeThinking) expandCollapsed(c);
-    const thinking = settings.includeThinking
-      ? (c.querySelector(SEL.thinking)?.textContent ?? "").trim()
-      : "";
-    const attachments = settings.includeAttachments
-      ? Array.from(c.querySelectorAll(SEL.attachmentChip))
-          .map((a) => (a.textContent ?? "").trim())
-          .filter(Boolean)
-      : [];
-    if (!prompt && !responseMarkdown && !thinking && !attachments.length)
-      return;
-    const turn: Turn = { index: i, prompt, attachments, responseMarkdown };
-    if (thinking) turn.thinking = thinking;
-    turns.push(turn);
-  });
+  await ensureAllTurnsLoaded();
+  // Expand every thinking overlay up front, then let expansion settle,
+  // before reading textContent below. expandCollapsed only clicks a toggle;
+  // if Gemini renders the expanded reasoning asynchronously, reading
+  // immediately after the click could capture stale/empty text, so the
+  // expand pass and the read pass are split with a settle delay between them.
+  if (settings.includeThinking) {
+    document.querySelectorAll(SEL.turn).forEach((c) => expandCollapsed(c));
+  }
+  await new Promise((r) => setTimeout(r, 300));
+  const byKey = new Map<string, Turn>();
+  let ordinal = 0;
+  const collect = (): void => {
+    document.querySelectorAll(SEL.turn).forEach((c) => {
+      const prompt = (c.querySelector(SEL.queryText)?.textContent ?? "").trim();
+      const responseMarkdown = htmlToMarkdown(
+        c.querySelector(SEL.responseMarkdown),
+      );
+      const thinking = settings.includeThinking
+        ? (c.querySelector(SEL.thinking)?.textContent ?? "").trim()
+        : "";
+      const attachments = settings.includeAttachments
+        ? Array.from(c.querySelectorAll(SEL.attachmentChip))
+            .map((a) => (a.textContent ?? "").trim())
+            .filter(Boolean)
+        : [];
+      if (!prompt && !responseMarkdown && !thinking && !attachments.length)
+        return;
+      const key = turnKey(prompt, ordinal++);
+      if (byKey.has(key)) return;
+      const turn: Turn = {
+        index: byKey.size,
+        prompt,
+        attachments,
+        responseMarkdown,
+      };
+      if (thinking) turn.thinking = thinking;
+      byKey.set(key, turn);
+    });
+  };
+  collect();
   return {
     id,
     title: getTitle(),
     url: `https://gemini.google.com/app/${id}`,
-    turns,
+    turns: Array.from(byKey.values()),
   };
 }
 
@@ -388,7 +431,7 @@ function downloadBlob(filename: string, blob: Blob): void {
 
 /** ---------- Export flow ---------- */
 async function exportCurrentConversation(): Promise<void> {
-  const conv = scrapeCurrentConversation();
+  const conv = await scrapeCurrentConversation();
   if (!conv.turns.length) throw new Error("No conversation turns found.");
   const { text, extension, mime } = renderConversation(conv, settings);
   downloadBlob(

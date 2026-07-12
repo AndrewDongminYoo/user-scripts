@@ -64,7 +64,7 @@ function elNode(name, children = [], attrs = {}) {
   return elem;
 }
 
-function makeSandbox({ pathname, title, turns, settings }) {
+function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
   let lastBlob = null;
   let resolveDownload;
   const downloaded = new Promise((r) => (resolveDownload = r));
@@ -113,6 +113,26 @@ function makeSandbox({ pathname, title, turns, settings }) {
       },
     }),
   );
+  // Mock lazy-load scroller: when revealSchedule (an array of [start, end)
+  // index pairs into turnNodes) is supplied, querySelectorAll(".conversation-container")
+  // reveals a growing slice each time scrollTop is set to 0, simulating
+  // Gemini's infinite-scroller loading older turns upward. Tests that omit
+  // revealSchedule keep the old always-return-everything behavior.
+  let revealLevel = 0;
+  const revealSlices = revealSchedule?.map(([s, e]) => turnNodes.slice(s, e));
+  const scrollerMock = revealSlices
+    ? {
+        scrollHeight: 1000,
+        get scrollTop() {
+          return this._scrollTop ?? 0;
+        },
+        set scrollTop(v) {
+          this._scrollTop = v;
+          if (v === 0 && revealLevel < revealSlices.length - 1) revealLevel++;
+        },
+      }
+    : null;
+
   const gmStore = { gce_settings: settings };
   const globals = {
     window: { location: { pathname } },
@@ -120,9 +140,14 @@ function makeSandbox({ pathname, title, turns, settings }) {
       title,
       documentElement: {},
       getElementById: () => null,
-      querySelector: () => null,
-      querySelectorAll: (sel) =>
-        sel === ".conversation-container" ? turnNodes : [],
+      querySelector: (sel) =>
+        scrollerMock && sel === "infinite-scroller.chat-history"
+          ? scrollerMock
+          : null,
+      querySelectorAll: (sel) => {
+        if (sel !== ".conversation-container") return [];
+        return revealSlices ? revealSlices[revealLevel] : turnNodes;
+      },
       addEventListener: () => {},
       createElement: el,
       body: {
@@ -548,6 +573,41 @@ function makeSandbox({ pathname, title, turns, settings }) {
   btn._on.click();
   await downloaded;
   check("empty overlay: toggle clicked", clicked);
+}
+
+// --- Test: completeness — lazy-loaded turns must all be scraped ---
+{
+  const turns = [0, 1, 2, 3, 4, 5].map((i) => ({
+    prompt: `q${i}`,
+    response: `a${i}`,
+  }));
+
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/lazy001",
+    title: "Lazy load - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns,
+    // reveal schedule: pass0 -> turns[4..5], pass1 -> [2..5], pass2 -> [0..5], stable
+    revealSchedule: [
+      [4, 6],
+      [2, 6],
+      [0, 6],
+    ],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const out = blob.text;
+  check(
+    "all 6 turns exported",
+    ["q0", "q1", "q2", "q3", "q4", "q5"].every((q) => out.includes(q)),
+  );
 }
 
 if (failures) {
