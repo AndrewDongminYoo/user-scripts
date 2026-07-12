@@ -4,7 +4,7 @@
 
 **Goal:** Capture extended thinking, tool calls/results, and attachment text in both Markdown and JSON export instead of dropping everything but `content[].text`.
 
-**Architecture:** Replace the single "join text blocks" step with two shared per-message helpers — `renderBlocks` (Markdown, document-order `<details>` blocks) and `collectStructured` (JSON, typed arrays). Both take a `BlockOpts` derived from three new settings toggles. Attachments render at the top of a message body; tool_use/tool_result pair by document order (no id map). Markdown truncates long blocks; JSON keeps them whole.
+**Architecture:** Replace the single "join text blocks" step with two shared per-message helpers — `renderBlocks` (Markdown, document-order `<details>` blocks) and `collectStructured` (JSON, typed arrays). Both take a `BlockOpts` derived from three new settings toggles. Attachments render at the top of a message body. Markdown renders tool blocks in document order, unpaired; the JSON collector (as shipped, after the final review) pairs tool_use/tool_result by `tool_use_id` with a FIFO document-order fallback — the single-cursor "no id map" pairing described in Task 2 below was superseded. Markdown truncates long blocks; JSON keeps them whole.
 
 **Tech Stack:** TypeScript, `vite-plugin-monkey` (v7 toolchain), Tampermonkey GM APIs, Node test harness (`test/run.mjs`), pnpm.
 
@@ -603,6 +603,13 @@ In `renderBlocks`, extend the `for` loop so it also handles tool blocks (add the
 
 - [ ] **Step 4: Add tool pairing to `collectStructured`**
 
+> Superseded: the single-`pending`-cursor, document-order-only pairing below was
+> the initial plan. The final review replaced it with `tool_use_id`-keyed pairing
+> plus a FIFO document-order fallback (co-location does not imply adjacency for
+> parallel tool calls). The shipped behavior lives in `collectStructured` in
+> `src/main.ts`; treat that and `claude-chat-exporter/AGENTS.md` as source of
+> truth, not this step's code.
+
 In `collectStructured`, add a `pending` cursor and tool branches. Replace the `for` loop with:
 
 ```typescript
@@ -969,7 +976,7 @@ Add a bullet to the features list describing rich-content capture, and a setting
 
 - [ ] **Step 2: Note the design seam in `AGENTS.md`**
 
-Add a short note: rich content is split into `renderBlocks` (Markdown, document-order `<details>`, truncated at `MD_BLOCK_CAP`) and `collectStructured` (JSON typed arrays, untruncated); `tool_use`/`tool_result` pair by document order (verified 1:1, no id map); uploaded image `files[]` and text-block `citations` are intentionally not exported.
+Add a short note: rich content is split into `renderBlocks` (Markdown, document-order `<details>`, truncated at `MD_BLOCK_CAP`) and `collectStructured` (JSON typed arrays, untruncated); Markdown renders tool blocks in document order (unpaired), while JSON pairs `tool_use`/`tool_result` by `tool_use_id` with a FIFO document-order fallback; uploaded image `files[]` and text-block `citations` are intentionally not exported.
 
 - [ ] **Step 3: Rebuild, run the full test suite, and lint**
 
