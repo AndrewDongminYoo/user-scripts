@@ -326,6 +326,95 @@ async function testExportAllSnapshotsSettings() {
 }
 await testExportAllSnapshotsSettings();
 
+const thinkingDetail = {
+  uuid: CHAT,
+  name: "Thinking",
+  chat_messages: [
+    {
+      sender: "assistant",
+      content: [
+        {
+          type: "thinking",
+          thinking: "step by step",
+          hidden: false,
+          thinking_hidden: false,
+        },
+        { type: "thinking", thinking: "  ", hidden: false }, // empty -> skipped
+        { type: "thinking", thinking: "secret", hidden: true }, // hidden -> skipped
+        { type: "text", text: "Answer" },
+      ],
+      created_at: "2026-07-11T09:00:00Z",
+    },
+  ],
+};
+
+async function testThinkingMarkdown() {
+  const s = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false },
+    fetchImpl: (url) => {
+      if (url.includes("/chat_conversations/")) return jsonRes(thinkingDetail);
+      throw new Error("unexpected " + url);
+    },
+  });
+  s.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const text = String((await s.downloaded).blob.parts[0]);
+  check(
+    "thinking details rendered",
+    text.includes("<details><summary>🧠 Extended thinking</summary>"),
+  );
+  check("thinking body present", text.includes("step by step"));
+  check(
+    "empty thinking skipped",
+    !text.includes("<summary>🧠 Extended thinking</summary>\n\n  "),
+  );
+  check("hidden thinking skipped", !text.includes("secret"));
+  check("text still rendered", text.includes("Answer"));
+}
+await testThinkingMarkdown();
+
+async function testThinkingToggleOffAndJson() {
+  const off = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "md", frontmatter: false, includeThinking: false },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(thinkingDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  off.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const offText = String((await off.downloaded).blob.parts[0]);
+  check("thinking omitted when toggle off", !offText.includes("🧠"));
+
+  const js = makeSandbox({
+    cookieOrg: ORG,
+    pathname: `/chat/${CHAT}`,
+    settings: { format: "json" },
+    fetchImpl: (url) =>
+      url.includes("/chat_conversations/")
+        ? jsonRes(thinkingDetail)
+        : (() => {
+            throw new Error(url);
+          })(),
+  });
+  js.allEls.find((e) => e.id === "__claude_export_btn")._on.click();
+  const obj = JSON.parse(String((await js.downloaded).blob.parts[0]));
+  check(
+    "json thinking array",
+    Array.isArray(obj.messages[0].thinking) &&
+      obj.messages[0].thinking[0] === "step by step",
+  );
+  check(
+    "json thinking excludes hidden/empty",
+    obj.messages[0].thinking.length === 1,
+  );
+}
+await testThinkingToggleOffAndJson();
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
