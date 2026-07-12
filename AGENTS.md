@@ -6,7 +6,7 @@ Repository operating guide for coding agents.
 
 - Monorepo for browser userscripts (Tampermonkey/Greasemonkey).
 - Each userscript is a TypeScript + Vite package built with `vite-plugin-monkey`.
-- Current package: `wanted-applied-marker/` (source `src/main.ts`, output `dist/wanted-applied-marker.user.js`).
+- Current packages: `wanted-applied-marker/` and `claude-chat-exporter/` (each: source `src/main.ts`, output `dist/<name>.user.js`).
 - The built `.user.js` is published as a GitHub Release asset by CI on qualifying pushes to `main`.
 - Detailed design/plan docs live under `docs/plans/`.
 
@@ -14,9 +14,10 @@ Repository operating guide for coding agents.
 
 ```text
 .
-├── wanted-applied-marker/               # TS/Vite userscript package
+├── wanted-applied-marker/               # TS/Vite userscript package (Wanted apply marker)
+├── claude-chat-exporter/                # TS/Vite userscript package (Claude chat exporter)
 ├── docs/plans/                          # design + implementation planning docs
-├── .github/workflows/                   # check.yml (lint/typecheck) + release.yml
+├── .github/workflows/                   # check.yml (typecheck/build/test/lint) + release.yml
 ├── pnpm-workspace.yaml                  # workspace + dependency overrides
 ├── CLAUDE.md                            # project guidance snapshot
 └── .trunk/                              # lint/format config
@@ -24,15 +25,15 @@ Repository operating guide for coding agents.
 
 ## Source Of Truth
 
-- Runtime behavior on Wanted site: `wanted-applied-marker/src/main.ts`.
-- Userscript metadata header (name, match, grants, version): `wanted-applied-marker/vite.config.ts`.
-- Tooling/dependency intent: root `package.json`, `pnpm-workspace.yaml`, and `wanted-applied-marker/package.json`.
+- Runtime behavior: each package's `<package>/src/main.ts` (e.g. `wanted-applied-marker/src/main.ts`, `claude-chat-exporter/src/main.ts`). See a package's own `AGENTS.md` for its design notes.
+- Userscript metadata header (name, match, grants, version): `<package>/vite.config.ts`.
+- Tooling/dependency intent: root `package.json`, `pnpm-workspace.yaml`, and each `<package>/package.json`.
 - Agent-facing repo guidance: this file + `CLAUDE.md`.
 
 ## Where To Edit
 
-- Change userscript behavior: edit `wanted-applied-marker/src/main.ts`.
-- Change metadata (match globs, grants, name): edit `wanted-applied-marker/vite.config.ts`.
+- Change userscript behavior: edit `<package>/src/main.ts`.
+- Change metadata (match globs, grants, name): edit `<package>/vite.config.ts`.
 - Add a new userscript: scaffold a new package and register it in `pnpm-workspace.yaml` and the `matrix.package` list in `.github/workflows/release.yml`.
 - Update process or architecture documentation: edit `CLAUDE.md` and relevant files in `docs/plans/`.
 
@@ -51,16 +52,18 @@ Run from repo root:
 pnpm install
 pnpm build       # build all packages (pnpm -r build)
 pnpm typecheck   # tsc --noEmit across packages
+pnpm -r test     # run each package's test harness (currently claude-chat-exporter)
 trunk check
 trunk fmt
 ```
 
-Run from `wanted-applied-marker/`:
+Run from a package directory (e.g. `wanted-applied-marker/` or `claude-chat-exporter/`):
 
 ```bash
 pnpm dev
 pnpm build
 pnpm preview
+pnpm test        # claude-chat-exporter only (Node harness over the built dist)
 ```
 
 ## Documentation Alignment Rules
