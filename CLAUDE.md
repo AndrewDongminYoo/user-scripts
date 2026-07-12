@@ -9,6 +9,7 @@ This monorepo manages browser userscripts (Tampermonkey/Greasemonkey). Each user
 Current scripts:
 
 - `wanted-applied-marker/` — Marks already-applied jobs on Wanted.co.kr job listings (TypeScript source, built with `vite-plugin-monkey`)
+- `claude-chat-exporter/` — Exports Claude.ai conversations (current one, or all) to Markdown/JSON via the site's same-origin API (TypeScript source, built with `vite-plugin-monkey`)
 
 ## Package Manager
 
@@ -29,6 +30,7 @@ Monorepo-wide commands (from root):
 ```sh
 pnpm build       # Build all packages
 pnpm typecheck   # Type-check all packages (tsc --noEmit)
+pnpm -r test     # Run each package's test harness (currently claude-chat-exporter)
 ```
 
 ## Architecture
@@ -50,6 +52,18 @@ Each script lives in its own subdirectory with `vite-plugin-monkey`:
 - **Infinite scroll**: `MutationObserver` on `document.documentElement` triggers debounced re-scan (300ms)
 - **API**: `https://www.wanted.co.kr/api/chaos/jobs/v4/{jobId}/details` — checks `data.application` field for apply status
 
+### claude-chat-exporter Key Design
+
+See `claude-chat-exporter/AGENTS.md` for the full design notes. Highlights:
+
+- **API**: reads conversations from the site's own same-origin endpoints — `GET /api/organizations`, `.../chat_conversations`, and `.../chat_conversations/{id}?tree=True&rendering_mode=messages&render_all_tools=true`.
+- **Two renderers**: `renderBlocks` (Markdown — document-order `<details>` blocks, truncated to `MD_BLOCK_CAP` = 2000 chars) and `collectStructured` (JSON — typed arrays, untruncated). They share predicates so Markdown and JSON stay coherent. JSON pairs `tool_use`/`tool_result` by `tool_use_id` with a FIFO document-order fallback.
+- **Content captured**: text, extended thinking, tool calls/results (compact), and attachment extracted text; uploaded image `files[]` and text-block `citations` are intentionally not exported.
+- **Settings**: a `⚙️` panel persists `{ format, frontmatter, messageTimestamps, includeThinking, includeToolCalls, includeAttachments }` under the `cce_settings` key.
+- **Export All**: max `CONCURRENCY` = 4 concurrent fetches; results packed into a dependency-free store-only ZIP.
+- **CSP**: `@grant GM_addStyle` (plus `GM_getValue`/`GM_setValue`) forces Tampermonkey's sandboxed world, exempting the script from claude.ai's strict CSP.
+- **Tests**: `claude-chat-exporter/test/run.mjs` is a Node harness that runs the built `dist` bundle against a stubbed DOM/GM/fetch sandbox; add assertions there for new behavior.
+
 ## CI/CD Pipeline
 
 | Workflow | File                            | Trigger                          |
@@ -59,11 +73,11 @@ Each script lives in its own subdirectory with `vite-plugin-monkey`:
 
 ### Check Workflow
 
-Runs `pnpm typecheck` and `trunk-io/trunk-action@v1` (lint). All branches must pass before merge.
+Runs `pnpm typecheck`, `pnpm -r build`, `pnpm -r test` (the per-package Node harnesses), then `trunk-io/trunk-action@v1` (lint/format). All branches must pass before merge.
 
 ### Release Workflow
 
-Uses a matrix over packages (`wanted-applied-marker`, add more as needed). For each package:
+Uses a matrix over packages (`wanted-applied-marker`, `claude-chat-exporter`). For each package:
 
 1. Detects `feat:|fix:|refactor:|perf:` conventional commits since the last tag that touched `<package>/`
 2. Generates a **date-based version** (`YYYY-MM-DD`). Same-day releases use `.N` suffix (e.g., `2026-02-24.1`)
