@@ -943,60 +943,69 @@ function uniqueName(base: string, used: Set<string>): string {
 }
 
 /** ---------- Export-All: conversation list enumeration ---------- */
-// (Task 3) The full conversation list loads at page boot via batchexecute
-// (observed live: rpcids CNgdBe first, then MaZiqc pages; the /search box then
-// filters client-side). The document-start interceptor learns that template;
-// Export-All replays it to enumerate every conversation.
+// (Task 3) The full conversation list is served by the `MaZiqc` batchexecute
+// RPC (verified live 2026-07-12): the app pages it at boot to fill the /search
+// list, then filters client-side. The document-start interceptor learns the
+// template; Export-All replays it, paging from the start via the response
+// cursor to enumerate every conversation.
 //
-// UNVERIFIED: the exact {id,title} leaf paths in the list payload are NOT yet
-// pinned — the list fires only at boot, which recon tooling cannot capture
-// before injection; only the document-start userscript sees it. `extractList`
-// below is a best-effort generic walker to be tightened once a real list
-// payload is captured with the script loaded. Content transport + parsing
-// (Tasks 1-2) ARE live-verified; this enumeration is the one unverified seam.
-const LIST_RPCIDS = ["CNgdBe", "MaZiqc"];
-const CONV_ID_RE = /^[0-9a-f]{12,}$/i;
+//   payload[2] = conversation entries; entry[0] = "c_<id>", entry[1] = title.
+//   payload[1] = next-page cursor (empty/absent => last page).
+//   The cursor is passed back as args[1]; a null cursor starts at page 1.
+const LIST_RPCID = "MaZiqc";
+const LIST_PAGE_CAP = 200; // runaway guard (76 convs ≈ 4 pages live)
+const CONV_ID_RE = /^[0-9a-f]{16}$/i;
 
-// Best-effort walk: collect entries that pair a conversation id with a title.
-// A conversation id appears as `c_<hex>` (content args) or bare `<hex>` (list);
-// the nearest short human string in the same node is taken as the title.
-function extractList(payload: unknown): { id: string; title: string }[] {
-  const found = new Map<string, string>();
-  const visit = (node: unknown): void => {
-    if (!Array.isArray(node)) return;
-    let id: string | null = null;
-    let title: string | null = null;
-    for (const el of node) {
-      if (typeof el !== "string") continue;
-      const bare = el.startsWith("c_") ? el.slice(2) : el;
-      if (CONV_ID_RE.test(bare)) {
-        if (!id) id = bare;
-      } else if (!title && el.trim() && el.length <= 200) {
-        title = el.trim();
-      }
-    }
-    if (id && !found.has(id)) found.set(id, title ?? id);
-    for (const el of node) visit(el);
-  };
-  visit(payload);
-  return [...found].map(([id, title]) => ({ id, title }));
+interface ConvRef {
+  id: string;
+  title: string;
 }
 
-async function listAllConversations(): Promise<
-  { id: string; title: string }[]
-> {
-  const rpcid = LIST_RPCIDS.find((r) => bxTemplates.has(r));
-  if (!rpcid)
+// Parse one MaZiqc page into {refs, cursor}. Defensive: a malformed entry is
+// skipped, and a missing cursor ends pagination.
+function parseListPage(payload: unknown): {
+  refs: ConvRef[];
+  cursor: string | null;
+} {
+  const refs: ConvRef[] = [];
+  let cursor: string | null = null;
+  if (Array.isArray(payload)) {
+    if (typeof payload[1] === "string" && payload[1].length > 0)
+      cursor = payload[1];
+    const entries = Array.isArray(payload[2]) ? (payload[2] as unknown[]) : [];
+    for (const e of entries) {
+      if (!Array.isArray(e)) continue;
+      const rawId = e[0];
+      const title = e[1];
+      if (typeof rawId !== "string" || typeof title !== "string") continue;
+      const id = rawId.replace(/^c_/, "");
+      if (CONV_ID_RE.test(id)) refs.push({ id, title });
+    }
+  }
+  return { refs, cursor };
+}
+
+// Enumerate every conversation by replaying the learned MaZiqc template and
+// paging via the response cursor (args[1]) from the start until exhausted.
+// Deduped by id; paced (replays are non-deterministic under bursts).
+async function listAllConversations(): Promise<ConvRef[]> {
+  if (!bxTemplates.has(LIST_RPCID))
     throw new Error(
       "대화 목록을 아직 학습하지 못했습니다. 페이지를 새로고침한 뒤 다시 시도하세요.",
     );
-  const payload = await bxReplay(rpcid, () => {
-    /* replay list template as-is (cursor paging TODO once shape is pinned) */
-  });
-  const list = extractList(payload);
-  if (!list.length)
-    throw new Error("대화 목록을 해석하지 못했습니다 (목록 파서 검증 필요).");
-  return list;
+  const byId = new Map<string, string>();
+  let cursor: string | null = null;
+  for (let page = 0; page < LIST_PAGE_CAP; page++) {
+    const payload = await bxReplay(LIST_RPCID, (args) => {
+      args[1] = cursor;
+    });
+    const { refs, cursor: next } = parseListPage(payload);
+    for (const r of refs) if (!byId.has(r.id)) byId.set(r.id, r.title);
+    if (!next || refs.length === 0) break;
+    cursor = next;
+    await bxSleep(300);
+  }
+  return [...byId].map(([id, title]) => ({ id, title }));
 }
 
 /** ---------- Export-All: orchestrator ---------- */
@@ -1417,7 +1426,7 @@ else
   bxDecode,
   bxPayload,
   parseContentPayload,
-  extractList,
+  parseListPage,
   zipStore,
   fetchConversationContent,
   listAllConversations,

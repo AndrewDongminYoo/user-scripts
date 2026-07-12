@@ -873,17 +873,40 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
   ]);
   check("zipStore returns a blob", !!zip);
 
-  // List walker (UNVERIFIED against real payload — plumbing contract only):
-  // given entries pairing a c_<id>/hex id with a short title string, extract them.
-  const list = I.extractList([
+  // MaZiqc list page (shape verified live 2026-07-12): payload[2] = entries,
+  // entry[0] = "c_<id>", entry[1] = title; payload[1] = next-page cursor.
+  const idA = "a".repeat(16);
+  const idB = "b".repeat(16);
+  const page = I.parseListPage([
+    null,
+    "CURSOR_TOKEN",
     [
-      ["c_abc123def456", "First chat", 111],
-      ["0011223344556677", "Second chat", 222],
+      ["c_" + idA, "First chat", 0, 0],
+      ["c_" + idB, "Second chat", 0, 0],
     ],
   ]);
-  check("extractList: finds both ids", list.length === 2);
-  check("extractList: strips c_ prefix", list[0].id === "abc123def456");
-  check("extractList: pairs title", list[0].title === "First chat");
+  check("parseListPage: 2 refs", page.refs.length === 2);
+  check("parseListPage: strips c_ prefix", page.refs[0].id === idA);
+  check("parseListPage: pairs title", page.refs[0].title === "First chat");
+  check("parseListPage: cursor extracted", page.cursor === "CURSOR_TOKEN");
+
+  // Last page: null cursor ends pagination.
+  const last = I.parseListPage([null, null, [["c_" + idA, "Only", 0]]]);
+  check("parseListPage: null cursor at end", last.cursor === null);
+
+  // Malformed entry (non-id) is skipped, not thrown.
+  const mixed = I.parseListPage([
+    null,
+    "X",
+    [
+      ["not-an-id", "Bad"],
+      ["c_" + idB, "Good", 0],
+    ],
+  ]);
+  check(
+    "parseListPage: skips non-id entry",
+    mixed.refs.length === 1 && mixed.refs[0].title === "Good",
+  );
 }
 
 if (failures) {
