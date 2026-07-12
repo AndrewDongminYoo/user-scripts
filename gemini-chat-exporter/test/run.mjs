@@ -98,11 +98,15 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
   const turnNodes = turns.map((t) =>
     node({
       query: {
-        ".query-text": node({ text: t.prompt }),
-        // .markdown is real converter input: an element tree with
-        // childNodes/nodeType, either a caller-supplied fixture (responseNode)
-        // or a plain text response wrapped in a single text node.
-        ".markdown":
+        // Extraction queries are scoped to their parent element
+        // (user-query / model-response), so fixtures key on the scoped
+        // selector string the extractor actually issues.
+        "user-query .query-text": node({ text: t.prompt }),
+        // model-response .markdown is real converter input: an element tree
+        // with childNodes/nodeType, either a caller-supplied fixture
+        // (responseNode) or a plain text response wrapped in a single text
+        // node.
+        "model-response .markdown":
           t.responseNode ??
           elNode("div", t.response ? [textNode(t.response)] : []),
         // thinkingNode lets a test supply a custom fixture (e.g. one whose
@@ -110,10 +114,13 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
         // text-only node built from `thinking`.
         "thinking-overlay":
           t.thinkingNode ?? (t.thinking ? node({ text: t.thinking }) : null),
+        // decoyMarkdownNode lets a regression test prove the response query
+        // is scoped under model-response, not the bare ".markdown" selector.
+        ...(t.decoyMarkdownNode ? { ".markdown": t.decoyMarkdownNode } : {}),
       },
       queryAll: {
-        ".file-preview-container": (t.attachments ?? []).map((name) =>
-          node({ text: name }),
+        "user-query .file-preview-container": (t.attachments ?? []).map(
+          (name) => node({ text: name }),
         ),
       },
     }),
@@ -397,6 +404,36 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
   check(
     "code fence collapses trailing blank lines",
     out.includes("const y = 2;\n```") && !out.includes("const y = 2;\n\n\n```"),
+  );
+}
+
+// --- Test: response query is scoped to model-response, not the bare
+// ".markdown" selector (guards against a stray .markdown elsewhere in the
+// container, e.g. inside a thinking-overlay, being mistaken for the response) ---
+{
+  const decoy = elNode("div", [textNode("DECOY THINKING")]);
+  const real = elNode("div", [textNode("REAL RESPONSE")]);
+
+  const { downloaded, allEls } = makeSandbox({
+    pathname: "/app/scope001",
+    title: "Scoping test - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Q", responseNode: real, decoyMarkdownNode: decoy }],
+  });
+
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const out = blob.text;
+  check("scoped query reads the real response", out.includes("REAL RESPONSE"));
+  check(
+    "scoped query ignores the decoy .markdown",
+    !out.includes("DECOY THINKING"),
   );
 }
 

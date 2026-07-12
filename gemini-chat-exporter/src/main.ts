@@ -323,15 +323,23 @@ async function scrapeCurrentConversation(): Promise<Conversation> {
   await new Promise((r) => setTimeout(r, 300));
   const turns: Turn[] = [];
   document.querySelectorAll(SEL.turn).forEach((c) => {
-    const prompt = (c.querySelector(SEL.queryText)?.textContent ?? "").trim();
+    // Scope query/response/attachment lookups to their parent element
+    // (user-query / model-response). An unscoped `.markdown` query would
+    // return the FIRST such node in document order anywhere in the
+    // container, which could be a thinking-overlay's own `.markdown` if
+    // one ever precedes the response — scoping under model-response
+    // guarantees we read the actual response body.
+    const prompt = (
+      c.querySelector(`${SEL.userQuery} ${SEL.queryText}`)?.textContent ?? ""
+    ).trim();
     const responseMarkdown = htmlToMarkdown(
-      c.querySelector(SEL.responseMarkdown),
+      c.querySelector(`${SEL.modelResponse} ${SEL.responseMarkdown}`),
     );
     const thinking = settings.includeThinking
       ? (c.querySelector(SEL.thinking)?.textContent ?? "").trim()
       : "";
     const attachments = settings.includeAttachments
-      ? Array.from(c.querySelectorAll(SEL.attachmentChip))
+      ? Array.from(c.querySelectorAll(`${SEL.userQuery} ${SEL.attachmentChip}`))
           .map((a) => (a.textContent ?? "").trim())
           .filter(Boolean)
       : [];
