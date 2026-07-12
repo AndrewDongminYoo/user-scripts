@@ -68,7 +68,11 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
   let lastBlob = null;
   let resolveDownload;
   const downloaded = new Promise((r) => (resolveDownload = r));
-  const bodyChildren = [];
+  // Tracks every element ever created via document.createElement, regardless
+  // of where (or whether) it ends up attached — modal controls are nested
+  // several levels below <body>, so tests find them by id via this list
+  // rather than by walking appendChild trees.
+  const allEls = [];
   const el = (tag) => {
     const e = {
       tagName: tag,
@@ -88,6 +92,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
           resolveDownload({ name: this.download, blob: lastBlob });
       },
     };
+    allEls.push(e);
     return e;
   };
   const turnNodes = turns.map((t) =>
@@ -151,9 +156,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
       addEventListener: () => {},
       createElement: el,
       body: {
-        appendChild(c) {
-          bodyChildren.push(c);
-        },
+        appendChild() {},
       },
     },
     MutationObserver: class {
@@ -176,12 +179,12 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
   globals.globalThis = globals;
   vm.createContext(globals);
   vm.runInContext(src, globals);
-  return { globals, downloaded, bodyChildren };
+  return { globals, downloaded, allEls, gmStore };
 }
 
 // --- Test: basic 2-turn Markdown export ---
 {
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/abc123",
     title: "Test chat - Google Gemini",
     settings: {
@@ -196,7 +199,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     ],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   check("export button mounted", !!btn);
   btn._on.click();
   const { blob } = await downloaded;
@@ -226,7 +229,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     elNode("p", [elNode("a", [textNode("link")], { href: "https://x.dev" })]),
   ]);
 
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/def456",
     title: "MD fidelity - Google Gemini",
     settings: {
@@ -238,7 +241,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     turns: [{ prompt: "Show me", responseNode: md }],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   const { blob } = await downloaded;
   const out = blob.text;
@@ -281,7 +284,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     ]),
   ]);
 
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/ghi789",
     title: "Edge cases - Google Gemini",
     settings: {
@@ -293,7 +296,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     turns: [{ prompt: "Edge", responseNode: md }],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   const { blob } = await downloaded;
   const out = blob.text;
@@ -351,7 +354,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     ]),
   ]);
 
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/jkl012",
     title: "Review fixes - Google Gemini",
     settings: {
@@ -363,7 +366,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     turns: [{ prompt: "Fixes", responseNode: md }],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   const { blob } = await downloaded;
   const out = blob.text;
@@ -395,7 +398,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
 
 // --- Test: thinking + attachments capture ---
 {
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/mno345",
     title: "Thinking test - Google Gemini",
     settings: {
@@ -414,7 +417,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     ],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   const { blob } = await downloaded;
   const out = blob.text;
@@ -427,7 +430,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
 
 // --- Test: thinking omitted when includeThinking=false ---
 {
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/pqr678",
     title: "Thinking off - Google Gemini",
     settings: {
@@ -445,7 +448,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     ],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   const { blob } = await downloaded;
   const outOff = blob.text;
@@ -454,7 +457,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
 
 // --- Test: attachments omitted when includeAttachments=false ---
 {
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/stu901",
     title: "Attachments off - Google Gemini",
     settings: {
@@ -472,7 +475,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     ],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   const { blob } = await downloaded;
   const outOff = blob.text;
@@ -481,7 +484,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
 
 // --- Test: frontmatter title/source escape backslashes before quotes (YAML) ---
 {
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/vwx234",
     // title contains both a backslash and a double-quote
     title: 'C:\\path\\to "file" - Google Gemini',
@@ -494,7 +497,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     turns: [{ prompt: "Q", response: "A" }],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   const { blob } = await downloaded;
   const out = blob.text;
@@ -523,7 +526,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
         : null,
   };
 
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/yz1234",
     title: "Expand branch already-open - Google Gemini",
     settings: {
@@ -535,7 +538,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     turns: [{ prompt: "Q", response: "A", thinkingNode: overlay }],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   await downloaded;
   check("already-expanded overlay: toggle NOT clicked", !clicked);
@@ -557,7 +560,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
         : null,
   };
 
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/ab5678",
     title: "Expand branch collapsed - Google Gemini",
     settings: {
@@ -569,7 +572,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     turns: [{ prompt: "Q", response: "A", thinkingNode: overlay }],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   await downloaded;
   check("empty overlay: toggle clicked", clicked);
@@ -582,7 +585,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     response: `a${i}`,
   }));
 
-  const { downloaded, bodyChildren } = makeSandbox({
+  const { downloaded, allEls } = makeSandbox({
     pathname: "/app/lazy001",
     title: "Lazy load - Google Gemini",
     settings: {
@@ -600,7 +603,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     ],
   });
 
-  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
   btn._on.click();
   const { blob } = await downloaded;
   const out = blob.text;
@@ -608,6 +611,73 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     "all 6 turns exported",
     ["q0", "q1", "q2", "q3", "q4", "q5"].every((q) => out.includes(q)),
   );
+}
+
+// --- Test: JSON format export ---
+{
+  const { downloaded, allEls } = makeSandbox({
+    pathname: "/app/json001",
+    title: "Test chat - Google Gemini",
+    settings: {
+      format: "json",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [
+      { prompt: "Hello", response: "Hi there" },
+      { prompt: "Bye", response: "Goodbye" },
+    ],
+  });
+
+  const btn = allEls.find((c) => c.id === "__gce_export_btn");
+  check("export button mounted (json)", !!btn);
+  btn._on.click();
+  const { blob } = await downloaded;
+  const data = JSON.parse(blob.text);
+  check("json has title", data.title === "Test chat");
+  check("json turns", Array.isArray(data.turns) && data.turns.length === 2);
+  check("json prompt", data.turns[0].prompt === "Hello");
+  check("json mime", blob.type.startsWith("application/json"));
+}
+
+// --- Test: settings modal controls drive settings + persist ---
+{
+  const { allEls, gmStore } = makeSandbox({
+    pathname: "/app/settings001",
+    title: "Settings test - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: true,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Hello", response: "Hi there" }],
+  });
+
+  const trigger = allEls.find((c) => c.id === "__gce_export_trigger");
+  check("export trigger mounted", !!trigger);
+
+  const fmtJson = allEls.find((e) => e.id === "__gce_fmt_json");
+  check("json radio exists", !!fmtJson);
+  fmtJson.checked = true;
+  fmtJson._on.change();
+  check("format persisted", gmStore.gce_settings.format === "json");
+
+  const thinkingSw = allEls.find((e) => e.id === "__gce_thinking");
+  check("thinking switch exists", !!thinkingSw);
+  thinkingSw.checked = false;
+  thinkingSw._on.change();
+  check(
+    "thinking toggle persisted",
+    gmStore.gce_settings.includeThinking === false,
+  );
+
+  const attachSw = allEls.find((e) => e.id === "__gce_attachments");
+  check("attachments switch exists", !!attachSw);
+
+  const fmRow = allEls.find((e) => e.id === "__gce_frontmatter");
+  check("frontmatter switch exists", !!fmRow);
 }
 
 if (failures) {
