@@ -170,6 +170,10 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     },
     console,
     setTimeout: (fn) => fn && fn(),
+    // Reconciliation loop's interval must NOT auto-fire like setTimeout above
+    // (that would recurse into mountUI forever); a no-op returning a fake
+    // handle matches real setInterval semantics closely enough for tests.
+    setInterval: () => 0,
     GM_addStyle: () => {},
     GM_getValue: (k, d) => (k in gmStore ? gmStore[k] : d),
     GM_setValue: (k, v) => {
@@ -678,6 +682,28 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
 
   const fmRow = allEls.find((e) => e.id === "__gce_frontmatter");
   check("frontmatter switch exists", !!fmRow);
+}
+
+// --- Test: native UI mount (sidebar absent -> floating trigger + modal on body) ---
+{
+  const { allEls } = makeSandbox({
+    pathname: "/app/mount001",
+    title: "Mount test - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: true,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Hello", response: "Hi there" }],
+  });
+
+  const trigger = allEls.find((e) => e.id === "__gce_export_trigger");
+  check("trigger mounted (floating fallback)", !!trigger);
+  check(
+    "modal built",
+    allEls.some((e) => e.id === "__gce_modal"),
+  );
 }
 
 if (failures) {

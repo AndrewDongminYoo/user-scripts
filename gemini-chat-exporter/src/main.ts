@@ -18,7 +18,12 @@ const SEL = {
   responseMarkdown: ".markdown",
   thinking: "thinking-overlay",
   scroller: "infinite-scroller.chat-history",
-  sidebar: "bard-sidenav-container",
+  // The sidebar is a collapsible drawer, absent from the DOM while closed.
+  // mat-nav-list is the confirmed mount container: it holds the
+  // gem-nav-list-item conversation rows plus the top ("새 채팅"/"채팅 검색")
+  // and bottom (account) rows, and was live-verified visible with 33 nav
+  // items when the drawer is open (2026-07-12).
+  sidebar: "mat-nav-list",
 } as const;
 
 /** ---------- Types ---------- */
@@ -464,9 +469,7 @@ async function exportCurrentConversation(): Promise<void> {
 
 /** ---------- UI ---------- */
 const ONE_ID = "__gce_export_btn";
-const ALL_ID = "__gce_export_all_btn";
 const ONE_LABEL = "⬇ Export this chat";
-const ALL_LABEL = "⬇ Export all";
 const MODAL_ID = "__gce_modal";
 const TRIGGER_ID = "__gce_export_trigger";
 
@@ -504,16 +507,16 @@ GM_addStyle(`
   #${MODAL_ID} .gce-btn { flex:1; padding:10px; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:14px; }
   #${MODAL_ID} .gce-btn:disabled { opacity:.6; cursor:default; }
   #${MODAL_ID} .gce-primary { background:#1a73e8; color:#fff; }
-  #${MODAL_ID} .gce-secondary { background:#f1f3f4; color:#1f1f1f; }
   #${MODAL_ID} .gce-progress { margin-top:10px; min-height:18px; font-size:13px; color:#5f6368; text-align:center; }
   #${TRIGGER_ID} { display:flex; align-items:center; gap:8px; width:calc(100% - 16px); margin:0 8px; height:40px; padding:0 12px; border:none; background:transparent; cursor:pointer; font:400 14px/1 "Google Sans", system-ui, sans-serif; color:#444746; border-radius:999px; text-align:left; }
   #${TRIGGER_ID}:hover { background:rgba(0,0,0,.06); }
+  #${TRIGGER_ID} .gce-lead { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:20px; height:20px; }
+  #${TRIGGER_ID} .gce-lead svg { width:20px; height:20px; }
   #${TRIGGER_ID}.gce-floating { position:fixed; bottom:20px; right:20px; z-index:2147483646; width:auto; height:auto; padding:10px 16px; margin:0; background:#1a73e8; color:#fff; font-weight:600; border-radius:999px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
   @media (prefers-color-scheme: dark) {
     #${MODAL_ID} .gce-panel { background:#1e1f20; color:#e3e3e3; border-color:#444746; }
     #${MODAL_ID} .gce-seg { background:#2d2e30; }
     #${MODAL_ID} .gce-seg input:checked + label { background:#131314; color:#e3e3e3; }
-    #${MODAL_ID} .gce-secondary { background:#2d2e30; color:#e3e3e3; }
     #${TRIGGER_ID} { color:#c4c7c5; }
     #${TRIGGER_ID}:hover { background:rgba(255,255,255,.08); }
   }
@@ -659,14 +662,6 @@ function buildModal(): HTMLDivElement {
   oneBtn.id = ONE_ID;
   oneBtn.type = "button";
   oneBtn.textContent = ONE_LABEL;
-  const allBtn = elc("button", "gce-btn gce-secondary");
-  allBtn.id = ALL_ID;
-  allBtn.type = "button";
-  allBtn.textContent = ALL_LABEL;
-  // Multi-conversation export lands in Task 6; keep the control present
-  // (stable id for the harness) but inert until it's wired up.
-  allBtn.disabled = true;
-  allBtn.title = "Coming soon";
   progressEl = elc("div", "gce-progress");
 
   oneBtn.addEventListener("click", () => {
@@ -676,7 +671,6 @@ function buildModal(): HTMLDivElement {
     });
   });
   actions.appendChild(oneBtn);
-  actions.appendChild(allBtn);
 
   panel.appendChild(head);
   panel.appendChild(seg);
@@ -689,6 +683,30 @@ function buildModal(): HTMLDivElement {
   return modal;
 }
 
+// Inline download glyph for the sidebar row (static markup, no user input —
+// assigning it via innerHTML is XSS-safe; scraped conversation content never
+// flows through innerHTML, only textContent/Markdown strings).
+const DL_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg>`;
+
+function buildTrigger(floating: boolean): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.id = TRIGGER_ID;
+  btn.type = "button";
+  if (floating) {
+    btn.className = "gce-floating";
+    btn.textContent = "⬇ Export";
+  } else {
+    const icon = elc("span", "gce-lead");
+    icon.innerHTML = DL_SVG;
+    const label = elc("span");
+    label.textContent = "Export";
+    btn.appendChild(icon);
+    btn.appendChild(label);
+  }
+  btn.addEventListener("click", openModal);
+  return btn;
+}
+
 function mountUI(): void {
   // The modal lives on <body> once and is toggled open/closed via CSS class.
   if (!document.getElementById(MODAL_ID)) {
@@ -697,14 +715,52 @@ function mountUI(): void {
       if (e.key === "Escape") closeModal();
     });
   }
-  // Minimal floating trigger; a native sidebar entry point lands in Task 7.
-  if (!document.getElementById(TRIGGER_ID)) {
-    const trigger = elc("button", "gce-floating");
-    trigger.id = TRIGGER_ID;
-    trigger.type = "button";
-    trigger.textContent = "⬇ Export";
-    trigger.addEventListener("click", openModal);
-    document.body.appendChild(trigger);
+  // Gemini's sidebar is a collapsible drawer: mat-nav-list is only in the DOM
+  // while the drawer is open (verified live 2026-07-12). Prepend the native
+  // row as the first item so it sits near "새 채팅"; fall back to a floating
+  // pill while the drawer is closed.
+  const sidebar = document.querySelector(SEL.sidebar);
+  const existing = document.getElementById(TRIGGER_ID);
+  if (existing) {
+    // Keep the native row as-is; only act when a floating fallback (mounted
+    // while the drawer was closed) can now be upgraded into the sidebar.
+    if (!existing.classList.contains("gce-floating") || !sidebar) return;
+    existing.remove();
   }
+  if (sidebar) sidebar.prepend(buildTrigger(false));
+  else document.body.appendChild(buildTrigger(true));
 }
 mountUI();
+
+// Gemini's Angular sidebar drawer opens/closes and re-renders, tearing down
+// our trigger. Debounced observer + guard so our own insertion doesn't
+// thrash it into a mount loop.
+let remountQueued = false;
+const observer = new MutationObserver(() => {
+  const trigger = document.getElementById(TRIGGER_ID);
+  const canUpgrade =
+    trigger?.classList.contains("gce-floating") === true &&
+    document.querySelector(SEL.sidebar) !== null;
+  if (trigger && document.getElementById(MODAL_ID) && !canUpgrade) return;
+  if (remountQueued) return;
+  remountQueued = true;
+  setTimeout(() => {
+    remountQueued = false;
+    mountUI();
+  }, 200);
+});
+observer.observe(document.documentElement, { childList: true, subtree: true });
+
+// Belt-and-suspenders (chatgpt-exporter pattern): the debounced observer catches
+// most re-renders, but Gemini's Angular sidebar can fully remount in ways it
+// misses. A low-frequency reconciliation loop re-mounts when our trigger or
+// modal is no longer in the document. getElementById only returns connected
+// nodes, so a null result already means "disconnected → re-mount". mountUI is
+// idempotent.
+setInterval(() => {
+  if (
+    !document.getElementById(TRIGGER_ID) ||
+    !document.getElementById(MODAL_ID)
+  )
+    mountUI();
+}, 1000);
