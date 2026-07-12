@@ -76,6 +76,11 @@ function getTitle(): string {
   );
 }
 
+/** Quotes a YAML scalar, escaping backslashes before quotes (order matters). */
+function yamlStr(v: string): string {
+  return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 /** ---------- HTML -> Markdown (dependency-free) ---------- */
 const BLOCK_TAGS = new Set([
   "P",
@@ -270,9 +275,14 @@ function htmlToMarkdown(root: Element | null): string {
 function expandCollapsed(container: Element): void {
   const overlay = container.querySelector(SEL.thinking);
   if (!overlay) return;
+  // If reasoning text is already in the DOM, it is inline/expanded — do not
+  // toggle (a click could collapse it). Only click a toggle when there is
+  // nothing to read yet. (Live-verified: thinking-overlay carries no
+  // aria-expanded on the container, and is an empty placeholder when the
+  // response used no reasoning.)
+  if ((overlay.textContent ?? "").trim()) return;
   const btn = overlay.querySelector("button, [role='button']");
-  const expanded = overlay.getAttribute("aria-expanded");
-  if (btn && expanded !== "true") (btn as HTMLElement).click();
+  if (btn) (btn as HTMLElement).click();
 }
 
 function scrapeCurrentConversation(): Conversation {
@@ -313,8 +323,8 @@ function toMarkdown(conv: Conversation, s: Settings): string {
   if (s.frontmatter) {
     out.push(
       "---",
-      `title: "${conv.title.replace(/"/g, '\\"')}"`,
-      `source: "${conv.url}"`,
+      `title: ${yamlStr(conv.title)}`,
+      `source: ${yamlStr(conv.url)}`,
       `date: ${new Date().toISOString().slice(0, 10)}`,
       "---",
       "",

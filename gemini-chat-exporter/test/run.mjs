@@ -100,7 +100,11 @@ function makeSandbox({ pathname, title, turns, settings }) {
         ".markdown":
           t.responseNode ??
           elNode("div", t.response ? [textNode(t.response)] : []),
-        "thinking-overlay": t.thinking ? node({ text: t.thinking }) : null,
+        // thinkingNode lets a test supply a custom fixture (e.g. one whose
+        // querySelector exposes a clickable toggle) instead of the plain
+        // text-only node built from `thinking`.
+        "thinking-overlay":
+          t.thinkingNode ?? (t.thinking ? node({ text: t.thinking }) : null),
       },
       queryAll: {
         ".file-preview-container": (t.attachments ?? []).map((name) =>
@@ -421,6 +425,129 @@ function makeSandbox({ pathname, title, turns, settings }) {
   const { blob } = await downloaded;
   const outOff = blob.text;
   check("thinking omitted when off", !outOff.includes("reasoning step"));
+}
+
+// --- Test: attachments omitted when includeAttachments=false ---
+{
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/stu901",
+    title: "Attachments off - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: false,
+    },
+    turns: [
+      {
+        prompt: "Analyze this",
+        response: "Here's the analysis",
+        attachments: ["report.pdf"],
+      },
+    ],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const outOff = blob.text;
+  check("attachment name omitted when off", !outOff.includes("report.pdf"));
+}
+
+// --- Test: frontmatter title/source escape backslashes before quotes (YAML) ---
+{
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/vwx234",
+    // title contains both a backslash and a double-quote
+    title: 'C:\\path\\to "file" - Google Gemini',
+    settings: {
+      format: "md",
+      frontmatter: true,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Q", response: "A" }],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  const { blob } = await downloaded;
+  const out = blob.text;
+  // Correct order: backslashes escaped first, then quotes.
+  // Source title: C:\path\to "file"
+  // Expected YAML: "C:\\path\\to \"file\""
+  check(
+    "frontmatter title escapes backslashes before quotes",
+    out.includes('title: "C:\\\\path\\\\to \\"file\\""'),
+  );
+}
+
+// --- Test: expandCollapsed does not click when overlay already has text ---
+{
+  let clicked = false;
+  const overlay = {
+    textContent: "already expanded reasoning",
+    getAttribute: () => null,
+    querySelector: (sel) =>
+      sel === "button, [role='button']"
+        ? {
+            click: () => {
+              clicked = true;
+            },
+          }
+        : null,
+  };
+
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/yz1234",
+    title: "Expand branch already-open - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Q", response: "A", thinkingNode: overlay }],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  await downloaded;
+  check("already-expanded overlay: toggle NOT clicked", !clicked);
+}
+
+// --- Test: expandCollapsed clicks toggle when overlay is empty ---
+{
+  let clicked = false;
+  const overlay = {
+    textContent: "",
+    getAttribute: () => null,
+    querySelector: (sel) =>
+      sel === "button, [role='button']"
+        ? {
+            click: () => {
+              clicked = true;
+            },
+          }
+        : null,
+  };
+
+  const { downloaded, bodyChildren } = makeSandbox({
+    pathname: "/app/ab5678",
+    title: "Expand branch collapsed - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Q", response: "A", thinkingNode: overlay }],
+  });
+
+  const btn = bodyChildren.find((c) => c.id === "__gce_export_btn");
+  btn._on.click();
+  await downloaded;
+  check("empty overlay: toggle clicked", clicked);
 }
 
 if (failures) {
