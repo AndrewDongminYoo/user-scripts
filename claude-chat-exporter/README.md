@@ -26,12 +26,14 @@ Claude.ai 대화 페이지에서 현재 대화를 **Markdown 파일로 내려받
 
 이 저장소는 `main` 브랜치 릴리즈 시 userscript 파일을 자동 생성/업로드합니다.
 
+릴리즈는 **패키지별로 태그**됩니다(`claude-chat-exporter-<날짜>`). 저장소 전역 `releases/latest`는 다른 패키지(Wanted·Gemini)의 릴리즈가 더 최신이면 이 파일을 찾지 못해 404가 나므로 사용하지 않습니다.
+
 1. Tampermonkey를 설치합니다.
-2. 아래 최신 배포본 링크를 브라우저에서 엽니다.
+2. 아래 링크에서 가장 최근 `claude-chat-exporter-*` 릴리즈를 엽니다.
 
-- https://github.com/AndrewDongminYoo/user-scripts/releases/latest/download/claude-chat-exporter.user.js
+- https://github.com/AndrewDongminYoo/user-scripts/releases?q=claude-chat-exporter&expanded=true
 
-3. Tampermonkey 설치 화면에서 스크립트를 설치합니다.
+3. 그 릴리즈의 Assets에서 `claude-chat-exporter.user.js`를 열어 Tampermonkey 설치 화면에서 설치합니다.
 
 ## 개발 모드 / 로컬 빌드 (개발자용)
 
