@@ -6,7 +6,7 @@ Repository operating guide for coding agents.
 
 - Monorepo for browser userscripts (Tampermonkey/Greasemonkey).
 - Each userscript is a TypeScript + Vite package built with `vite-plugin-monkey`.
-- Current packages: `wanted-applied-marker/` and `claude-chat-exporter/` (each: source `src/main.ts`, output `dist/<name>.user.js`).
+- Current packages: `wanted-applied-marker/`, `claude-chat-exporter/`, and `gemini-chat-exporter/` (each: source `src/main.ts`, output `dist/<name>.user.js`).
 - The built `.user.js` is published as a GitHub Release asset by CI on qualifying pushes to `main`.
 - Detailed design/plan docs live under `docs/plans/`.
 
@@ -16,6 +16,7 @@ Repository operating guide for coding agents.
 .
 ├── wanted-applied-marker/               # TS/Vite userscript package (Wanted apply marker)
 ├── claude-chat-exporter/                # TS/Vite userscript package (Claude chat exporter)
+├── gemini-chat-exporter/                # TS/Vite userscript package (Gemini chat exporter)
 ├── docs/plans/                          # design + implementation planning docs
 ├── .github/workflows/                   # check.yml (typecheck/build/test/lint) + release.yml
 ├── pnpm-workspace.yaml                  # workspace + dependency overrides
@@ -52,18 +53,18 @@ Run from repo root:
 pnpm install
 pnpm build       # build all packages (pnpm -r build)
 pnpm typecheck   # tsc --noEmit across packages
-pnpm -r test     # run each package's test harness (currently claude-chat-exporter)
+pnpm -r test     # run each package's test harness (claude-chat-exporter and gemini-chat-exporter)
 trunk check
 trunk fmt
 ```
 
-Run from a package directory (e.g. `wanted-applied-marker/` or `claude-chat-exporter/`):
+Run from a package directory (e.g. `wanted-applied-marker/`, `claude-chat-exporter/`, or `gemini-chat-exporter/`):
 
 ```bash
 pnpm dev
 pnpm build
 pnpm preview
-pnpm test        # claude-chat-exporter only (Node harness over the built dist)
+pnpm test        # claude-chat-exporter and gemini-chat-exporter (Node harness over the built dist)
 ```
 
 ## Documentation Alignment Rules

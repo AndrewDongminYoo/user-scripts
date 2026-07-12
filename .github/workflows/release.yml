@@ -17,6 +17,7 @@ jobs:
         package:
           - wanted-applied-marker
           - claude-chat-exporter
+          - gemini-chat-exporter
     steps:
       - uses: actions/checkout@v4
         with:
