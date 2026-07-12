@@ -186,6 +186,10 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     GM_setValue: (k, v) => {
       gmStore[k] = v;
     },
+    // Export-All transport uses TextEncoder (zipStore) and the standard
+    // Uint8Array; expose them to the vm context.
+    TextEncoder,
+    Uint8Array,
   };
   globals.globalThis = globals;
   vm.createContext(globals);
@@ -741,6 +745,145 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     "modal built",
     allEls.some((e) => e.id === "__gce_modal"),
   );
+}
+
+// --- Test: Export-All button mounted ---
+{
+  const { allEls } = makeSandbox({
+    pathname: "/app/all001",
+    title: "All test - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: true,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [{ prompt: "Hello", response: "Hi there" }],
+  });
+  check(
+    "export-all button mounted",
+    allEls.some((e) => e.id === "__gce_export_all_btn"),
+  );
+}
+
+// --- Test: batchexecute transport + hNvQHb content parser (verified shape) ---
+// The internals seam exposes the observe-replay decoder/parser so the pinned
+// payload paths (prompt = turn[2][0][0], response = turn[3][0][0][1][0]) and the
+// `)]}'` envelope decode are unit-tested against synthetic fixtures that mirror
+// the real structure captured live 2026-07-12.
+{
+  const { globals } = makeSandbox({
+    pathname: "/app/int001",
+    title: "internals - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [],
+  });
+  const I = globals.__gceInternals;
+  check("internals seam exposed", !!I && typeof I.bxDecode === "function");
+
+  // Real-shape turn: prompt at [2][0][0], response Markdown at [3][0][0][1][0].
+  const mkTurn = (prompt, resp) => [
+    [["a", "b"]],
+    null,
+    [[prompt, null, null, null, null]],
+    [[[null, [resp]]]],
+    [0, 0],
+  ];
+  const wrap = (payload) => {
+    const row = JSON.stringify([
+      ["wrb.fr", "hNvQHb", JSON.stringify(payload), null, null, "generic"],
+    ]);
+    // )]}' guard, blank line, byte-length prefix, JSON chunk, a trailing chunk.
+    return `)]}'\n\n${Buffer.byteLength(row)}\n${row}\n10\n[["di",7]]\n`;
+  };
+
+  // Envelope decode -> payload -> parse.
+  const env = wrap([[mkTurn("Hello world", "**Hi** there")], null, null, [1]]);
+  const payload = I.bxPayload(env, "hNvQHb");
+  check("envelope decodes to payload array", Array.isArray(payload));
+  const parsed = I.parseContentPayload(payload);
+  check("parse: 1 turn", parsed.turns.length === 1);
+  check("parse: prompt pinned", parsed.turns[0].prompt === "Hello world");
+  check(
+    "parse: response markdown pinned",
+    parsed.turns[0].responseMarkdown === "**Hi** there",
+  );
+  check("parse: not truncated (cursor null)", parsed.truncated === false);
+
+  // payload[1] non-null cursor => truncation flagged, not silently dropped.
+  const tr = I.parseContentPayload([[mkTurn("Q", "A")], "CURSOR", null, [1]]);
+  check(
+    "parse: truncation detected via payload[1] cursor",
+    tr.truncated === true,
+  );
+
+  // Multibyte content: byte-length prefix must not corrupt the UTF-16 decode.
+  const uni = wrap([
+    [mkTurn("안녕하세요 세계 🌍", "**한글** 응답")],
+    null,
+    null,
+    [1],
+  ]);
+  const uniParsed = I.parseContentPayload(I.bxPayload(uni, "hNvQHb"));
+  check(
+    "parse: multibyte prompt intact",
+    uniParsed.turns[0].prompt === "안녕하세요 세계 🌍",
+  );
+
+  // Image-gen style turn: no response leaf -> keep prompt + placeholder.
+  const img = I.parseContentPayload([
+    [[[["a"]], null, [["Draw a cat"]], [["render", "tree"]], [0]]],
+    null,
+    null,
+    [1],
+  ]);
+  check(
+    "parse: image turn keeps prompt",
+    img.turns.length === 1 && img.turns[0].prompt === "Draw a cat",
+  );
+  check(
+    "parse: image turn response placeholder",
+    img.turns[0].responseMarkdown.includes("non-text"),
+  );
+
+  // Malformed turn -> skipped and counted, never thrown.
+  const bad = I.parseContentPayload([
+    [[null, null, null, null]],
+    null,
+    null,
+    [1],
+  ]);
+  check(
+    "parse: malformed turn skipped + counted",
+    bad.turns.length === 0 && bad.skipped === 1,
+  );
+
+  // Wrong rpcid in the envelope -> null payload (not a throw).
+  check("bxPayload: missing rpcid -> null", I.bxPayload(env, "ZZZZ") === null);
+
+  // Store-only ZIP: verbatim port from claude-chat-exporter; smoke-check it runs.
+  const zip = I.zipStore([
+    { name: "a.md", data: new TextEncoder().encode("alpha") },
+    { name: "b.md", data: new TextEncoder().encode("beta") },
+  ]);
+  check("zipStore returns a blob", !!zip);
+
+  // List walker (UNVERIFIED against real payload — plumbing contract only):
+  // given entries pairing a c_<id>/hex id with a short title string, extract them.
+  const list = I.extractList([
+    [
+      ["c_abc123def456", "First chat", 111],
+      ["0011223344556677", "Second chat", 222],
+    ],
+  ]);
+  check("extractList: finds both ids", list.length === 2);
+  check("extractList: strips c_ prefix", list[0].id === "abc123def456");
+  check("extractList: pairs title", list[0].title === "First chat");
 }
 
 if (failures) {
