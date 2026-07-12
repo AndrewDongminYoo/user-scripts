@@ -1516,8 +1516,8 @@ git commit -m "docs(gemini-chat-exporter): README, AGENTS, and CLAUDE.md entry"
 - Attachments (names only) → Task 3. ✓
 - Settings (`gce_settings`: format/frontmatter/includeThinking/includeAttachments) → Task 1 (type) + Task 5 (modal). ✓
 - MD + JSON renderers sharing predicates → Task 1/3 (MD), Task 5 (JSON). ✓
-- Store-only ZIP (no dependency) → Task 6. ✓
-- Export-All (enumerate + serial navigate+scrape + fallback) → Task 6. ✓
+- Store-only ZIP (no dependency) → DEFERRED to v1.1 (Task 6 descoped; ZIP is only needed for Export-All). Not in v1.
+- Export-All → DEFERRED to v1.1. Navigation-based approach is infeasible on Gemini's SPA; the verified `batchexecute` observe-replay design lives in `docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`. Not in v1.
 - Native UI injection + dual-persistence re-mount (MutationObserver + 1s reconciliation interval) + floating fallback → Task 7. ✓
 - CSP/sandbox grant, download plumbing → Task 1. ✓
 - Pipeline wiring (workspace + release matrix + Node harness) → Task 1 + Task 8. ✓
