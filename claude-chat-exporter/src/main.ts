@@ -835,16 +835,19 @@ const TRIGGER_ID = "__claude_export_trigger";
 // Claude's <html>-scoped custom properties so light/dark themes track automatically.
 // (--df-* vars are sidebar-frame-scoped and empty at body level — not used here.)
 GM_addStyle(`
-  /* --- sidebar trigger (native nav-row look) --- */
+  /* --- sidebar trigger: mirror the sibling .df-products-block row exactly --- */
   #${TRIGGER_ID} {
-    display: flex; align-items: center; gap: 8px; width: 100%;
-    height: 32px; padding: 0 8px; margin: 2px 0;
+    display: flex; align-items: center; gap: var(--df-row-gap, 8px);
+    width: calc(100% - 16px); margin: 0 8px;
+    height: var(--df-row-h, 32px); padding: 0 2px;
     border: none; background: transparent; cursor: pointer;
-    font: 400 14px/1 inherit; color: hsl(var(--text-300));
-    border-radius: 8px; text-align: left;
+    font-weight: 400; font-size: var(--df-row-font, 14px); line-height: 1;
+    color: hsl(var(--text-300)); border-radius: 8px; text-align: left;
   }
   #${TRIGGER_ID}:hover { background: hsl(var(--bg-300)); color: hsl(var(--text-100)); }
-  #${TRIGGER_ID} svg { width: 16px; height: 16px; flex: 0 0 auto; }
+  /* 28x28 leading slot centres the icon on the same column as native rows */
+  #${TRIGGER_ID} .cce-lead { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; }
+  #${TRIGGER_ID} .cce-lead svg { width: 16px; height: 16px; }
   /* --- fallback floating pill --- */
   #${TRIGGER_ID}.cce-floating {
     position: fixed; bottom: 20px; right: 20px; z-index: 2147483646;
@@ -1090,7 +1093,7 @@ function buildTrigger(floating: boolean): HTMLButtonElement {
     btn.className = "cce-floating";
     btn.textContent = "⬇ Export";
   } else {
-    const icon = elc("span");
+    const icon = elc("span", "cce-lead");
     icon.innerHTML = DL_SVG;
     const label = elc("span");
     label.textContent = "Export";
