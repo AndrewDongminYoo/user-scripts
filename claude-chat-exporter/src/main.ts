@@ -885,6 +885,39 @@ function buildPanel(): HTMLDivElement {
     saveSettings(settings);
   });
 
+  const mkCheck = (
+    id: string,
+    checked: boolean,
+    apply: (v: boolean) => Settings,
+  ): HTMLInputElement => {
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.id = id;
+    c.checked = checked;
+    c.addEventListener("change", () => {
+      settings = apply(c.checked);
+      saveSettings(settings);
+    });
+    return c;
+  };
+
+  const think = mkCheck("__cce_thinking", settings.includeThinking, (v) => ({
+    ...settings,
+    includeThinking: v,
+  }));
+  const tools = mkCheck("__cce_tools", settings.includeToolCalls, (v) => ({
+    ...settings,
+    includeToolCalls: v,
+  }));
+  const attach = mkCheck(
+    "__cce_attachments",
+    settings.includeAttachments,
+    (v) => ({
+      ...settings,
+      includeAttachments: v,
+    }),
+  );
+
   const row = (ctrl: HTMLElement, text: string): HTMLLabelElement => {
     const l = document.createElement("label");
     l.appendChild(ctrl);
@@ -896,6 +929,9 @@ function buildPanel(): HTMLDivElement {
   panel.appendChild(row(fmtJson, "JSON"));
   panel.appendChild(row(fm, "Frontmatter (md)"));
   panel.appendChild(row(ts, "Message timestamps (md)"));
+  panel.appendChild(row(think, "Extended thinking"));
+  panel.appendChild(row(tools, "Tool calls"));
+  panel.appendChild(row(attach, "Attachments"));
   return panel;
 }
 
