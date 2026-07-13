@@ -1,10 +1,12 @@
 # Custom Dictionary Words
 Avenir
+convs
 cuint
 Dongmin
 dongminyu
 dotenv
 eabi
+eocd
 esbuild
 eslintcache
 estree
@@ -24,6 +26,7 @@ Microbundle
 mrmime
 msvc
 musleabihf
+ngcontent
 njsproj
 ntvs
 nuxt
@@ -38,6 +41,7 @@ rescan
 rgba
 riscv
 rollup
+rpcid
 safecrlf
 stylelintcache
 sugarss
@@ -52,3 +56,4 @@ vite
 vuepress
 wscript
 xxhashjs
+Ziqc
