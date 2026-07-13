@@ -1430,6 +1430,15 @@ function buildNativeTrigger(tplItem: Element): HTMLElement {
   if (meta) while (meta.firstChild) meta.removeChild(meta.firstChild);
 
   a.addEventListener("click", openModal);
+  // The clone is an <a> with role="button" but no href — ARIA roles don't grant
+  // the keyboard activation a real <button> has, so Space/Enter wouldn't open
+  // the exporter for keyboard-only users. Wire it explicitly.
+  a.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openModal();
+    }
+  });
   return clone;
 }
 
