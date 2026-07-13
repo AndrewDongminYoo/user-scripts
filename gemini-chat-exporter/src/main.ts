@@ -1489,12 +1489,15 @@ function mountUI(): void {
   }
   if (sidebar) {
     const items = sidebar.querySelectorAll(SEL.navItem);
-    const last = items.length ? items[items.length - 1] : null;
-    // Native-matched row (a clone of the last nav item) right after it, so it
-    // groups with "새 채팅"/"채팅 검색"; fall back to a custom row prepended to
-    // the list if no native row is available to clone.
-    if (last?.querySelector(SEL.navAnchor))
-      last.after(buildNativeTrigger(last));
+    // Clone a TOP CONTROL row, never a history/account row: `mat-nav-list`
+    // holds the conversation-history `gem-nav-list-item` rows too (dozens of
+    // them), so `items[last]` is unreliable — it would clone a history row's
+    // shape and drop the Export entry at the bottom of the list. The 2nd item
+    // ("채팅 검색") is a non-active leading-icon control; clone it and insert the
+    // Export row right after it so it groups with "새 채팅"/"채팅 검색". Fall back
+    // to the first control, then to a custom row, as availability shrinks.
+    const tpl = items[1] ?? items[0] ?? null;
+    if (tpl?.querySelector(SEL.navAnchor)) tpl.after(buildNativeTrigger(tpl));
     else sidebar.prepend(buildTrigger(false));
   } else {
     document.body.appendChild(buildTrigger(true));
