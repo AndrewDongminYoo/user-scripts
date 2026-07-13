@@ -1492,33 +1492,39 @@ function mountUI(): void {
       });
     }
   }
-  // Gemini's sidebar is a collapsible drawer: mat-nav-list is only in the DOM
-  // while the drawer is open (verified live 2026-07-12). When it's open, place
-  // the Export row right after the last native nav item ("채팅 검색") so it
-  // groups with them; fall back to a floating pill while the drawer is closed.
+  // Gemini's sidebar is a collapsible drawer: `mat-nav-list` is only in the DOM
+  // while the drawer is open (verified live 2026-07-12). Resolve the native
+  // template to clone: `mat-nav-list` also holds the conversation-history rows
+  // (dozens), so `items[last]` is unreliable — it would clone a history-row
+  // shape and land at the bottom. The 2nd item ("채팅 검색") is a non-active
+  // leading-icon control; clone it and insert the Export row right after it so
+  // it groups with "새 채팅"/"채팅 검색". Fall back to the first control.
   const sidebar = document.querySelector(SEL.sidebar);
-  const existing = document.getElementById(TRIGGER_ID);
-  if (existing) {
-    // Keep the sidebar row as-is; only act when a floating fallback (mounted
-    // while the drawer was closed) can now be upgraded into the sidebar.
-    if (!existing.classList.contains("gce-floating") || !sidebar) return;
-    existing.remove();
-  }
+  let tpl: Element | null = null;
   if (sidebar) {
     const items = sidebar.querySelectorAll(SEL.navItem);
-    // Clone a TOP CONTROL row, never a history/account row: `mat-nav-list`
-    // holds the conversation-history `gem-nav-list-item` rows too (dozens of
-    // them), so `items[last]` is unreliable — it would clone a history row's
-    // shape and drop the Export entry at the bottom of the list. The 2nd item
-    // ("채팅 검색") is a non-active leading-icon control; clone it and insert the
-    // Export row right after it so it groups with "새 채팅"/"채팅 검색". Fall back
-    // to the first control, then to a custom row, as availability shrinks.
-    const tpl = items[1] ?? items[0] ?? null;
-    if (tpl?.querySelector(SEL.navAnchor)) tpl.after(buildNativeTrigger(tpl));
-    else sidebar.prepend(buildTrigger(false));
-  } else {
-    document.body.appendChild(buildTrigger(true));
+    tpl = items[1] ?? items[0] ?? null;
   }
+  const nativeTpl = tpl?.querySelector(SEL.navAnchor) ? tpl : null;
+
+  const existing = document.getElementById(TRIGGER_ID);
+  if (existing) {
+    // Trigger quality: native clone (best) > custom row > floating pill. Keep a
+    // native clone as final; replace a FALLBACK only when a better form is now
+    // available — a floating pill once the drawer opens, a custom row once the
+    // native rows render (Angular can mount `mat-nav-list` before its
+    // `gem-nav-list-item` children). Never downgrade.
+    const isFloating = existing.classList.contains("gce-floating");
+    const isCustom = existing.classList.contains("gce-custom");
+    if (!isFloating && !isCustom) return; // already a native clone
+    const canUpgrade = (isFloating && sidebar) || (isCustom && nativeTpl);
+    if (!canUpgrade) return;
+    existing.remove();
+  }
+
+  if (nativeTpl) nativeTpl.after(buildNativeTrigger(nativeTpl));
+  else if (sidebar) sidebar.prepend(buildTrigger(false));
+  else document.body.appendChild(buildTrigger(true));
 }
 
 let remountQueued = false;
