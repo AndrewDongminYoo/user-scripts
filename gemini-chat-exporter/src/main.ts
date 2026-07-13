@@ -24,6 +24,15 @@ const SEL = {
   // and bottom (account) rows, and was live-verified visible with 33 nav
   // items when the drawer is open (2026-07-12).
   sidebar: "mat-nav-list",
+  // Native sidebar nav row ("새 채팅"/"채팅 검색") — our Export trigger clones
+  // this row's Material list-item class strings at runtime so it matches the
+  // native buttons exactly and adapts across build-to-build class churn
+  // (structure verified live 2026-07-12).
+  navItem: "gem-nav-list-item",
+  navAnchor: "a.mat-mdc-list-item",
+  navIcon: ".mat-mdc-list-item-icon",
+  navLabel: ".mdc-list-item__primary-text",
+  navMeta: ".mat-mdc-list-item-meta",
 } as const;
 
 /** ---------- Types ---------- */
@@ -1150,17 +1159,22 @@ GM_addStyle(`
   #${MODAL_ID} .gce-btn:disabled { opacity:.6; cursor:default; }
   #${MODAL_ID} .gce-primary { background:#1a73e8; color:#fff; }
   #${MODAL_ID} .gce-progress { margin-top:10px; min-height:18px; font-size:13px; color:#5f6368; text-align:center; }
-  #${TRIGGER_ID} { display:flex; align-items:center; gap:8px; width:calc(100% - 16px); margin:0 8px; height:40px; padding:0 12px; border:none; background:transparent; cursor:pointer; font:400 14px/1 "Google Sans", system-ui, sans-serif; color:#444746; border-radius:999px; text-align:left; }
-  #${TRIGGER_ID}:hover { background:rgba(0,0,0,.06); }
-  #${TRIGGER_ID} .gce-lead { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:20px; height:20px; }
-  #${TRIGGER_ID} .gce-lead svg { width:20px; height:20px; }
-  #${TRIGGER_ID}.gce-floating { position:fixed; bottom:20px; right:20px; z-index:2147483646; width:auto; height:auto; padding:10px 16px; margin:0; background:#1a73e8; color:#fff; font-weight:600; border-radius:999px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  /* Custom-styled fallback row (used only when the native sidebar template is
+     unavailable). The native-matched variant carries none of these classes and
+     relies entirely on Gemini's own list-item CSS, so it must not be styled here. */
+  #${TRIGGER_ID}.gce-custom { display:flex; align-items:center; gap:8px; width:calc(100% - 16px); margin:0 8px; height:40px; padding:0 12px; border:none; background:transparent; cursor:pointer; font:400 14px/1 "Google Sans", system-ui, sans-serif; color:#444746; border-radius:999px; text-align:left; }
+  #${TRIGGER_ID}.gce-custom:hover { background:rgba(0,0,0,.06); }
+  #${TRIGGER_ID}.gce-custom .gce-lead { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:20px; height:20px; }
+  #${TRIGGER_ID}.gce-custom .gce-lead svg { width:20px; height:20px; }
+  #${TRIGGER_ID}.gce-floating { position:fixed; bottom:20px; right:20px; z-index:2147483646; display:flex; align-items:center; gap:8px; width:auto; height:auto; padding:10px 16px; margin:0; border:none; cursor:pointer; background:#1a73e8; color:#fff; font:600 14px/1 "Google Sans", system-ui, sans-serif; border-radius:999px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  /* Native-matched variant: size the injected download glyph like a Material list icon. */
+  #${TRIGGER_ID} .gce-native-ico svg { width:24px; height:24px; }
   @media (prefers-color-scheme: dark) {
     #${MODAL_ID} .gce-panel { background:#1e1f20; color:#e3e3e3; border-color:#444746; }
     #${MODAL_ID} .gce-seg { background:#2d2e30; }
     #${MODAL_ID} .gce-seg input:checked + label { background:#131314; color:#e3e3e3; }
-    #${TRIGGER_ID} { color:#c4c7c5; }
-    #${TRIGGER_ID}:hover { background:rgba(255,255,255,.08); }
+    #${TRIGGER_ID}.gce-custom { color:#c4c7c5; }
+    #${TRIGGER_ID}.gce-custom:hover { background:rgba(255,255,255,.08); }
   }
 `);
 
@@ -1358,36 +1372,81 @@ function buildModal(): HTMLDivElement {
   return modal;
 }
 
+const TRIGGER_LABEL = "내보내기";
+
+// A download-arrow glyph built via createElementNS. Gemini enforces a Trusted
+// Types CSP: assigning a string to innerHTML throws even for static, XSS-safe
+// markup — do not "simplify" this back to innerHTML.
+function downloadSvg(): SVGSVGElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", "M12 3v12m0 0l-4-4m4 4l4-4M4 21h16");
+  svg.appendChild(path);
+  return svg;
+}
+
+// Build the Export trigger by DEEP-CLONING a real native nav row. Gemini's row
+// styling is scoped by Angular's ViewEncapsulation `_ngcontent-*` attributes,
+// so hand-built markup with identical classes still misaligns (it falls back to
+// MDC's default spacing — verified live); only a clone carries those attributes
+// and thus the exact geometry. cloneNode drops the live directives (ripple/
+// tooltip/routerLink), leaving a static visual twin — exactly what we want. We
+// then retarget it: our id, our download glyph, our label, our click; and strip
+// navigation + active state. Falls back to buildTrigger() if the row lacks the
+// expected anchor.
+function buildNativeTrigger(tplItem: Element): HTMLElement {
+  const clone = tplItem.cloneNode(true) as HTMLElement;
+  clone.id = TRIGGER_ID;
+  const a = clone.querySelector(SEL.navAnchor);
+  if (!(a instanceof HTMLElement)) return buildTrigger(false);
+  a.removeAttribute("href");
+  a.removeAttribute("aria-current");
+  a.classList.remove("is-active", "mdc-list-item--activated");
+  a.setAttribute("role", "button");
+  a.setAttribute("tabindex", "0");
+  a.setAttribute("aria-label", TRIGGER_LABEL);
+
+  const label = a.querySelector(SEL.navLabel);
+  if (label) label.textContent = TRIGGER_LABEL;
+
+  // Swap the native icon for our download glyph, keeping the container so its
+  // leading-icon geometry is preserved.
+  const iconDiv = a.querySelector(SEL.navIcon);
+  if (iconDiv) {
+    while (iconDiv.firstChild) iconDiv.removeChild(iconDiv.firstChild);
+    iconDiv.classList.add("gce-native-ico");
+    iconDiv.appendChild(downloadSvg());
+  }
+  // Empty the trailing-meta slot but keep it — the trailing-meta layout classes
+  // on <a> expect the slot to exist.
+  const meta = a.querySelector(SEL.navMeta);
+  if (meta) while (meta.firstChild) meta.removeChild(meta.firstChild);
+
+  a.addEventListener("click", openModal);
+  return clone;
+}
+
+// Fallback trigger for when the native sidebar template isn't available: a
+// custom-styled sidebar row (`gce-custom`) or, while the drawer is closed and
+// mat-nav-list is absent, a floating pill (`gce-floating`).
 function buildTrigger(floating: boolean): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.id = TRIGGER_ID;
   btn.type = "button";
-  if (floating) {
-    btn.className = "gce-floating";
-    btn.textContent = "⬇ Export";
-  } else {
-    const icon = elc("span", "gce-lead");
-    // Gemini enforces a Trusted Types CSP: assigning a string to innerHTML
-    // throws a TrustedHTML error even for static, XSS-safe markup like this
-    // glyph. Build the SVG via createElementNS instead — do not "simplify"
-    // this back to innerHTML.
-    const NS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(NS, "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("fill", "none");
-    svg.setAttribute("stroke", "currentColor");
-    svg.setAttribute("stroke-width", "2");
-    svg.setAttribute("stroke-linecap", "round");
-    svg.setAttribute("stroke-linejoin", "round");
-    const path = document.createElementNS(NS, "path");
-    path.setAttribute("d", "M12 3v12m0 0l-4-4m4 4l4-4M4 21h16");
-    svg.appendChild(path);
-    icon.appendChild(svg);
-    const label = elc("span");
-    label.textContent = "Export";
-    btn.appendChild(icon);
-    btn.appendChild(label);
-  }
+  btn.className = floating ? "gce-floating" : "gce-custom";
+  const icon = elc("span", "gce-lead");
+  icon.appendChild(downloadSvg());
+  const label = elc("span");
+  label.textContent = TRIGGER_LABEL;
+  btn.appendChild(icon);
+  btn.appendChild(label);
   btn.addEventListener("click", openModal);
   return btn;
 }
@@ -1408,19 +1467,29 @@ function mountUI(): void {
     }
   }
   // Gemini's sidebar is a collapsible drawer: mat-nav-list is only in the DOM
-  // while the drawer is open (verified live 2026-07-12). Prepend the native
-  // row as the first item so it sits near "새 채팅"; fall back to a floating
-  // pill while the drawer is closed.
+  // while the drawer is open (verified live 2026-07-12). When it's open, place
+  // the Export row right after the last native nav item ("채팅 검색") so it
+  // groups with them; fall back to a floating pill while the drawer is closed.
   const sidebar = document.querySelector(SEL.sidebar);
   const existing = document.getElementById(TRIGGER_ID);
   if (existing) {
-    // Keep the native row as-is; only act when a floating fallback (mounted
+    // Keep the sidebar row as-is; only act when a floating fallback (mounted
     // while the drawer was closed) can now be upgraded into the sidebar.
     if (!existing.classList.contains("gce-floating") || !sidebar) return;
     existing.remove();
   }
-  if (sidebar) sidebar.prepend(buildTrigger(false));
-  else document.body.appendChild(buildTrigger(true));
+  if (sidebar) {
+    const items = sidebar.querySelectorAll(SEL.navItem);
+    const last = items.length ? items[items.length - 1] : null;
+    // Native-matched row (a clone of the last nav item) right after it, so it
+    // groups with "새 채팅"/"채팅 검색"; fall back to a custom row prepended to
+    // the list if no native row is available to clone.
+    if (last?.querySelector(SEL.navAnchor))
+      last.after(buildNativeTrigger(last));
+    else sidebar.prepend(buildTrigger(false));
+  } else {
+    document.body.appendChild(buildTrigger(true));
+  }
 }
 
 let remountQueued = false;

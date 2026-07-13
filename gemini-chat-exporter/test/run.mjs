@@ -162,6 +162,20 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
       },
       addEventListener: () => {},
       createElement: el,
+      // The trigger's download glyph is built via createElementNS (Trusted
+      // Types forbids innerHTML). Minimal SVG-node stub: setAttribute +
+      // appendChild are all the builder touches.
+      createElementNS: (_ns, tag) => ({
+        tagName: tag,
+        _attrs: {},
+        children: [],
+        setAttribute(k, v) {
+          this._attrs[k] = v;
+        },
+        appendChild(c) {
+          this.children.push(c);
+        },
+      }),
       body: {
         appendChild() {},
       },
