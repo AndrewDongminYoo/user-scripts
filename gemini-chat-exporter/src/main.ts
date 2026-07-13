@@ -24,6 +24,15 @@ const SEL = {
   // and bottom (account) rows, and was live-verified visible with 33 nav
   // items when the drawer is open (2026-07-12).
   sidebar: "mat-nav-list",
+  // Native sidebar nav row ("새 채팅"/"채팅 검색") — our Export trigger clones
+  // this row's Material list-item class strings at runtime so it matches the
+  // native buttons exactly and adapts across build-to-build class churn
+  // (structure verified live 2026-07-12).
+  navItem: "gem-nav-list-item",
+  navAnchor: "a.mat-mdc-list-item",
+  navMatIcon: "mat-icon",
+  navLabel: ".mdc-list-item__primary-text",
+  navMeta: ".mat-mdc-list-item-meta",
 } as const;
 
 /** ---------- Types ---------- */
@@ -74,16 +83,34 @@ function getConversationId(): string | null {
   const m = window.location.pathname.match(/\/app\/([0-9a-f]+)/i);
   return m ? m[1] : null;
 }
+// Collapse all whitespace (incl. stray newlines/tabs) to single spaces and
+// trim. Gemini's conversation titles — especially the ones from the Export-All
+// list RPC — can arrive with a trailing newline, which otherwise leaks into the
+// YAML frontmatter and the `# title` heading. Normalize at every title source.
+function normalizeTitle(v: string): string {
+  return v.replace(/\s+/g, " ").trim();
+}
+
 function getTitle(): string {
   return (
-    document.title.replace(/\s*-\s*Google Gemini\s*$/, "").trim() ||
+    normalizeTitle(document.title.replace(/\s*-\s*Google Gemini\s*$/, "")) ||
     "Gemini conversation"
   );
 }
 
-/** Quotes a YAML scalar, escaping backslashes before quotes (order matters). */
+/**
+ * Quotes a YAML double-quoted scalar. Escapes backslashes first (order
+ * matters), then quotes, then the control characters that would break a
+ * single-line double-quoted scalar — a raw newline in the title otherwise
+ * splits the frontmatter mid-value.
+ */
 function yamlStr(v: string): string {
-  return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  return `"${v
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")}"`;
 }
 
 /** ---------- Batchexecute transport (observe-replay) ---------- */
@@ -979,7 +1006,7 @@ function parseListPage(payload: unknown): {
       const title = e[1];
       if (typeof rawId !== "string" || typeof title !== "string") continue;
       const id = rawId.replace(/^c_/, "");
-      if (CONV_ID_RE.test(id)) refs.push({ id, title });
+      if (CONV_ID_RE.test(id)) refs.push({ id, title: normalizeTitle(title) });
     }
   }
   return { refs, cursor };
@@ -1132,17 +1159,24 @@ GM_addStyle(`
   #${MODAL_ID} .gce-btn:disabled { opacity:.6; cursor:default; }
   #${MODAL_ID} .gce-primary { background:#1a73e8; color:#fff; }
   #${MODAL_ID} .gce-progress { margin-top:10px; min-height:18px; font-size:13px; color:#5f6368; text-align:center; }
-  #${TRIGGER_ID} { display:flex; align-items:center; gap:8px; width:calc(100% - 16px); margin:0 8px; height:40px; padding:0 12px; border:none; background:transparent; cursor:pointer; font:400 14px/1 "Google Sans", system-ui, sans-serif; color:#444746; border-radius:999px; text-align:left; }
-  #${TRIGGER_ID}:hover { background:rgba(0,0,0,.06); }
-  #${TRIGGER_ID} .gce-lead { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:20px; height:20px; }
-  #${TRIGGER_ID} .gce-lead svg { width:20px; height:20px; }
-  #${TRIGGER_ID}.gce-floating { position:fixed; bottom:20px; right:20px; z-index:2147483646; width:auto; height:auto; padding:10px 16px; margin:0; background:#1a73e8; color:#fff; font-weight:600; border-radius:999px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  /* Custom-styled fallback row (used only when the native sidebar template is
+     unavailable). The native-matched variant carries none of these classes and
+     relies entirely on Gemini's own list-item CSS, so it must not be styled here. */
+  #${TRIGGER_ID}.gce-custom { display:flex; align-items:center; gap:8px; width:calc(100% - 16px); margin:0 8px; height:40px; padding:0 12px; border:none; background:transparent; cursor:pointer; font:400 14px/1 "Google Sans", system-ui, sans-serif; color:#444746; border-radius:999px; text-align:left; }
+  #${TRIGGER_ID}.gce-custom:hover { background:rgba(0,0,0,.06); }
+  #${TRIGGER_ID}.gce-floating { position:fixed; bottom:20px; right:20px; z-index:2147483646; display:flex; align-items:center; gap:8px; width:auto; height:auto; padding:10px 16px; margin:0; border:none; cursor:pointer; background:#1a73e8; color:#fff; font:600 14px/1 "Google Sans", system-ui, sans-serif; border-radius:999px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  /* Both fallbacks (custom row + floating pill) size their download glyph the
+     same way — an inline SVG with no width/height defaults to a 300x150 box. */
+  #${TRIGGER_ID}.gce-custom .gce-lead,
+  #${TRIGGER_ID}.gce-floating .gce-lead { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:20px; height:20px; }
+  #${TRIGGER_ID}.gce-custom .gce-lead svg,
+  #${TRIGGER_ID}.gce-floating .gce-lead svg { width:20px; height:20px; }
   @media (prefers-color-scheme: dark) {
     #${MODAL_ID} .gce-panel { background:#1e1f20; color:#e3e3e3; border-color:#444746; }
     #${MODAL_ID} .gce-seg { background:#2d2e30; }
     #${MODAL_ID} .gce-seg input:checked + label { background:#131314; color:#e3e3e3; }
-    #${TRIGGER_ID} { color:#c4c7c5; }
-    #${TRIGGER_ID}:hover { background:rgba(255,255,255,.08); }
+    #${TRIGGER_ID}.gce-custom { color:#c4c7c5; }
+    #${TRIGGER_ID}.gce-custom:hover { background:rgba(255,255,255,.08); }
   }
 `);
 
@@ -1340,36 +1374,105 @@ function buildModal(): HTMLDivElement {
   return modal;
 }
 
+const TRIGGER_LABEL = "내보내기";
+// Gemini's icon font has no download glyph; `ios_share` is the export/share
+// glyph that exists in it (verified live). Used for the native-clone trigger.
+const EXPORT_ICON = "ios_share";
+
+// A download-arrow glyph built via createElementNS. Gemini enforces a Trusted
+// Types CSP: assigning a string to innerHTML throws even for static, XSS-safe
+// markup — do not "simplify" this back to innerHTML.
+function downloadSvg(): SVGSVGElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", "M12 3v12m0 0l-4-4m4 4l4-4M4 21h16");
+  svg.appendChild(path);
+  return svg;
+}
+
+// Build the Export trigger by DEEP-CLONING a real native nav row. Gemini's row
+// styling is scoped by Angular's ViewEncapsulation `_ngcontent-*` attributes,
+// so hand-built markup with identical classes still misaligns (it falls back to
+// MDC's default spacing — verified live); only a clone carries those attributes
+// and thus the exact geometry. cloneNode drops the live directives (ripple/
+// tooltip/routerLink), leaving a static visual twin — exactly what we want. We
+// then retarget it: our id, our download glyph, our label, our click; and strip
+// navigation + active state. Falls back to buildTrigger() if the row lacks the
+// expected anchor.
+function buildNativeTrigger(tplItem: Element): HTMLElement {
+  const clone = tplItem.cloneNode(true) as HTMLElement;
+  clone.id = TRIGGER_ID;
+  const a = clone.querySelector(SEL.navAnchor);
+  if (!(a instanceof HTMLElement)) return buildTrigger(false);
+  a.removeAttribute("href");
+  a.removeAttribute("aria-current");
+  a.classList.remove("is-active", "mdc-list-item--activated");
+  a.setAttribute("role", "button");
+  a.setAttribute("tabindex", "0");
+  a.setAttribute("aria-label", TRIGGER_LABEL);
+
+  // Replace only the DEEPEST text leaf, preserving Gemini's nested label spans
+  // (`.mdc-list-item__primary-text` > `.label-and-badge` > `.title-text
+  // .gds-body-s`). The visible text lives on that inner `.gds-body-s` leaf at
+  // 13px; setting `textContent` on the outer primary-text span would drop the
+  // nested spans and render the label oversized (16px) — the mismatch reported
+  // on the row.
+  const label = a.querySelector(SEL.navLabel);
+  if (label) {
+    let leaf: Element = label;
+    while (leaf.firstElementChild) leaf = leaf.firstElementChild;
+    leaf.textContent = TRIGGER_LABEL;
+  }
+
+  // Keep the cloned native <mat-icon> and just retarget its glyph: the icon is
+  // font-rendered via `::before { content: attr(fonticon) }` in Gemini's
+  // "Luminous Symbols" ligature font, so changing `fonticon` swaps the glyph
+  // with no Angular involvement. Its font lacks a download glyph, so we use the
+  // export/share icon `ios_share` (verified live to be a real single glyph).
+  const icon = a.querySelector(SEL.navMatIcon);
+  if (icon) {
+    icon.setAttribute("fonticon", EXPORT_ICON);
+    icon.setAttribute("data-mat-icon-name", EXPORT_ICON);
+  }
+  // Empty the trailing-meta slot but keep it — the trailing-meta layout classes
+  // on <a> expect the slot to exist.
+  const meta = a.querySelector(SEL.navMeta);
+  if (meta) while (meta.firstChild) meta.removeChild(meta.firstChild);
+
+  a.addEventListener("click", openModal);
+  // The clone is an <a> with role="button" but no href — ARIA roles don't grant
+  // the keyboard activation a real <button> has, so Space/Enter wouldn't open
+  // the exporter for keyboard-only users. Wire it explicitly.
+  a.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openModal();
+    }
+  });
+  return clone;
+}
+
+// Fallback trigger for when the native sidebar template isn't available: a
+// custom-styled sidebar row (`gce-custom`) or, while the drawer is closed and
+// mat-nav-list is absent, a floating pill (`gce-floating`).
 function buildTrigger(floating: boolean): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.id = TRIGGER_ID;
   btn.type = "button";
-  if (floating) {
-    btn.className = "gce-floating";
-    btn.textContent = "⬇ Export";
-  } else {
-    const icon = elc("span", "gce-lead");
-    // Gemini enforces a Trusted Types CSP: assigning a string to innerHTML
-    // throws a TrustedHTML error even for static, XSS-safe markup like this
-    // glyph. Build the SVG via createElementNS instead — do not "simplify"
-    // this back to innerHTML.
-    const NS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(NS, "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("fill", "none");
-    svg.setAttribute("stroke", "currentColor");
-    svg.setAttribute("stroke-width", "2");
-    svg.setAttribute("stroke-linecap", "round");
-    svg.setAttribute("stroke-linejoin", "round");
-    const path = document.createElementNS(NS, "path");
-    path.setAttribute("d", "M12 3v12m0 0l-4-4m4 4l4-4M4 21h16");
-    svg.appendChild(path);
-    icon.appendChild(svg);
-    const label = elc("span");
-    label.textContent = "Export";
-    btn.appendChild(icon);
-    btn.appendChild(label);
-  }
+  btn.className = floating ? "gce-floating" : "gce-custom";
+  const icon = elc("span", "gce-lead");
+  icon.appendChild(downloadSvg());
+  const label = elc("span");
+  label.textContent = TRIGGER_LABEL;
+  btn.appendChild(icon);
+  btn.appendChild(label);
   btn.addEventListener("click", openModal);
   return btn;
 }
@@ -1377,6 +1480,37 @@ function buildTrigger(floating: boolean): HTMLButtonElement {
 // mountUI can rebuild the modal across reconciliation passes; bind the
 // Escape listener at most once so it doesn't accumulate duplicates.
 let escBound = false;
+
+// Resolve the native nav row to clone: the 2nd top control ("채팅 검색"), a
+// non-active leading-icon row. `mat-nav-list` also holds the conversation-
+// history rows (dozens), so `items[last]` is unreliable — it would clone a
+// history-row shape and land at the bottom; the first two entries are the
+// stable top controls. null when the drawer is closed or the rows haven't
+// rendered yet (Angular can mount `mat-nav-list` before its children).
+function nativeTemplate(): Element | null {
+  const sidebar = document.querySelector(SEL.sidebar);
+  if (!sidebar) return null;
+  const items = sidebar.querySelectorAll(SEL.navItem);
+  const tpl = items[1] ?? items[0] ?? null;
+  return tpl?.querySelector(SEL.navAnchor) ? tpl : null;
+}
+
+// True only when the current trigger is a FALLBACK (floating pill / custom row)
+// that a strictly better form can now replace: floating once the drawer opens,
+// custom once a cloneable native row exists. A native clone (final) and a
+// fallback with nothing better both return false. Shared by mountUI and the
+// observer so the upgrade decision can't drift between them.
+function triggerCanUpgrade(): boolean {
+  const t = document.getElementById(TRIGGER_ID);
+  if (!t) return false;
+  const isFloating = t.classList.contains("gce-floating");
+  const isCustom = t.classList.contains("gce-custom");
+  if (!isFloating && !isCustom) return false;
+  return (
+    (isFloating && document.querySelector(SEL.sidebar) !== null) ||
+    (isCustom && nativeTemplate() !== null)
+  );
+}
 
 function mountUI(): void {
   // The modal lives on <body> once and is toggled open/closed via CSS class.
@@ -1389,19 +1523,17 @@ function mountUI(): void {
       });
     }
   }
-  // Gemini's sidebar is a collapsible drawer: mat-nav-list is only in the DOM
-  // while the drawer is open (verified live 2026-07-12). Prepend the native
-  // row as the first item so it sits near "새 채팅"; fall back to a floating
-  // pill while the drawer is closed.
-  const sidebar = document.querySelector(SEL.sidebar);
+  // Keep a native clone (final) and a fallback with nothing better available
+  // as-is; only replace a fallback that can now be upgraded. Gemini's sidebar
+  // is a collapsible drawer that re-renders, so mountUI runs repeatedly.
   const existing = document.getElementById(TRIGGER_ID);
-  if (existing) {
-    // Keep the native row as-is; only act when a floating fallback (mounted
-    // while the drawer was closed) can now be upgraded into the sidebar.
-    if (!existing.classList.contains("gce-floating") || !sidebar) return;
-    existing.remove();
-  }
-  if (sidebar) sidebar.prepend(buildTrigger(false));
+  if (existing && !triggerCanUpgrade()) return;
+  existing?.remove();
+
+  const nativeTpl = nativeTemplate();
+  const sidebar = document.querySelector(SEL.sidebar);
+  if (nativeTpl) nativeTpl.after(buildNativeTrigger(nativeTpl));
+  else if (sidebar) sidebar.prepend(buildTrigger(false));
   else document.body.appendChild(buildTrigger(true));
 }
 
@@ -1419,10 +1551,12 @@ function initUI(): void {
   // thrash it into a mount loop.
   const observer = new MutationObserver(() => {
     const trigger = document.getElementById(TRIGGER_ID);
-    const canUpgrade =
-      trigger?.classList.contains("gce-floating") === true &&
-      document.querySelector(SEL.sidebar) !== null;
-    if (trigger && document.getElementById(MODAL_ID) && !canUpgrade) return;
+    // Re-mount when the trigger or modal is missing, or when an existing
+    // fallback can now be upgraded to a better form (e.g. custom → native once
+    // Gemini renders the nav rows). triggerCanUpgrade covers every fallback,
+    // not just floating.
+    if (trigger && document.getElementById(MODAL_ID) && !triggerCanUpgrade())
+      return;
     if (remountQueued) return;
     remountQueued = true;
     setTimeout(() => {
@@ -1468,4 +1602,6 @@ else
   listAllConversations,
   exportAllConversations,
   formatExportSummary,
+  normalizeTitle,
+  yamlStr,
 };

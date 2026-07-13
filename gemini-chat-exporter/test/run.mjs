@@ -162,6 +162,20 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
       },
       addEventListener: () => {},
       createElement: el,
+      // The trigger's download glyph is built via createElementNS (Trusted
+      // Types forbids innerHTML). Minimal SVG-node stub: setAttribute +
+      // appendChild are all the builder touches.
+      createElementNS: (_ns, tag) => ({
+        tagName: tag,
+        _attrs: {},
+        children: [],
+        setAttribute(k, v) {
+          this._attrs[k] = v;
+        },
+        appendChild(c) {
+          this.children.push(c);
+        },
+      }),
       body: {
         appendChild() {},
       },
@@ -906,6 +920,25 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
   check(
     "parseListPage: skips non-id entry",
     mixed.refs.length === 1 && mixed.refs[0].title === "Good",
+  );
+
+  // A list title with a trailing newline is normalized at the source, so it
+  // can't leak into the frontmatter or the `# title` heading downstream.
+  const dirty = I.parseListPage([
+    null,
+    null,
+    [["c_" + idA, "Trailing newline\n", 0]],
+  ]);
+  check(
+    "parseListPage: normalizes whitespace/newline in title",
+    dirty.refs[0].title === "Trailing newline",
+  );
+  // yamlStr must escape a raw newline so a double-quoted frontmatter scalar
+  // stays on one line (the reported frontmatter-breaking bug).
+  check("yamlStr: escapes newline", I.yamlStr("a\nb") === '"a\\nb"');
+  check(
+    "normalizeTitle: collapses inner newlines + trims",
+    I.normalizeTitle("  a\n\nb  ") === "a b",
   );
 
   // A null payload (bxReplay failed even after its retry) parses to an empty,

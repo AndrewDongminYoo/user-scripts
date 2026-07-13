@@ -123,6 +123,19 @@ pnpm test
   `setAttribute`, never `innerHTML`. Any future scraped or generated content
   going into the DOM must follow the same rule — `textContent` or
   `createElement`/`createElementNS`, never `innerHTML`, on this site.
+- **Sidebar trigger clones a native nav row (`buildNativeTrigger`):** the
+  Export trigger is a deep `cloneNode` of the last native `gem-nav-list-item`
+  ("채팅 검색"), retargeted with our id/glyph/label/click and stripped of
+  navigation + active state. It is NOT hand-built from the same CSS classes:
+  Gemini scopes its row styling via Angular ViewEncapsulation `_ngcontent-*`
+  attributes, so a hand-built row with identical classes falls back to MDC's
+  default spacing and misaligns (icon/label indented ~16px — live-verified
+  2026-07-12). Only a clone carries those attributes, so it matches exactly and
+  self-adapts across builds. `cloneNode` drops the live Angular directives
+  (ripple/tooltip/routerLink), which is intentional — a static visual twin. Do
+  NOT "simplify" this back to `createElement` + class strings. Falls back to a
+  custom-styled row (`buildTrigger`, `.gce-custom`) or a floating pill
+  (`.gce-floating`) when the drawer is closed and no native row exists to clone.
 - **CSP / grants:** `@grant GM_addStyle, GM_getValue, GM_setValue,
 unsafeWindow`; `@run-at document-start`. `GM_addStyle` doubles as the
   button/modal CSS injector and, as a real `GM_*` grant, forces Tampermonkey
