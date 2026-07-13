@@ -1481,6 +1481,37 @@ function buildTrigger(floating: boolean): HTMLButtonElement {
 // Escape listener at most once so it doesn't accumulate duplicates.
 let escBound = false;
 
+// Resolve the native nav row to clone: the 2nd top control ("채팅 검색"), a
+// non-active leading-icon row. `mat-nav-list` also holds the conversation-
+// history rows (dozens), so `items[last]` is unreliable — it would clone a
+// history-row shape and land at the bottom; the first two entries are the
+// stable top controls. null when the drawer is closed or the rows haven't
+// rendered yet (Angular can mount `mat-nav-list` before its children).
+function nativeTemplate(): Element | null {
+  const sidebar = document.querySelector(SEL.sidebar);
+  if (!sidebar) return null;
+  const items = sidebar.querySelectorAll(SEL.navItem);
+  const tpl = items[1] ?? items[0] ?? null;
+  return tpl?.querySelector(SEL.navAnchor) ? tpl : null;
+}
+
+// True only when the current trigger is a FALLBACK (floating pill / custom row)
+// that a strictly better form can now replace: floating once the drawer opens,
+// custom once a cloneable native row exists. A native clone (final) and a
+// fallback with nothing better both return false. Shared by mountUI and the
+// observer so the upgrade decision can't drift between them.
+function triggerCanUpgrade(): boolean {
+  const t = document.getElementById(TRIGGER_ID);
+  if (!t) return false;
+  const isFloating = t.classList.contains("gce-floating");
+  const isCustom = t.classList.contains("gce-custom");
+  if (!isFloating && !isCustom) return false;
+  return (
+    (isFloating && document.querySelector(SEL.sidebar) !== null) ||
+    (isCustom && nativeTemplate() !== null)
+  );
+}
+
 function mountUI(): void {
   // The modal lives on <body> once and is toggled open/closed via CSS class.
   if (!document.getElementById(MODAL_ID)) {
@@ -1492,36 +1523,15 @@ function mountUI(): void {
       });
     }
   }
-  // Gemini's sidebar is a collapsible drawer: `mat-nav-list` is only in the DOM
-  // while the drawer is open (verified live 2026-07-12). Resolve the native
-  // template to clone: `mat-nav-list` also holds the conversation-history rows
-  // (dozens), so `items[last]` is unreliable — it would clone a history-row
-  // shape and land at the bottom. The 2nd item ("채팅 검색") is a non-active
-  // leading-icon control; clone it and insert the Export row right after it so
-  // it groups with "새 채팅"/"채팅 검색". Fall back to the first control.
-  const sidebar = document.querySelector(SEL.sidebar);
-  let tpl: Element | null = null;
-  if (sidebar) {
-    const items = sidebar.querySelectorAll(SEL.navItem);
-    tpl = items[1] ?? items[0] ?? null;
-  }
-  const nativeTpl = tpl?.querySelector(SEL.navAnchor) ? tpl : null;
-
+  // Keep a native clone (final) and a fallback with nothing better available
+  // as-is; only replace a fallback that can now be upgraded. Gemini's sidebar
+  // is a collapsible drawer that re-renders, so mountUI runs repeatedly.
   const existing = document.getElementById(TRIGGER_ID);
-  if (existing) {
-    // Trigger quality: native clone (best) > custom row > floating pill. Keep a
-    // native clone as final; replace a FALLBACK only when a better form is now
-    // available — a floating pill once the drawer opens, a custom row once the
-    // native rows render (Angular can mount `mat-nav-list` before its
-    // `gem-nav-list-item` children). Never downgrade.
-    const isFloating = existing.classList.contains("gce-floating");
-    const isCustom = existing.classList.contains("gce-custom");
-    if (!isFloating && !isCustom) return; // already a native clone
-    const canUpgrade = (isFloating && sidebar) || (isCustom && nativeTpl);
-    if (!canUpgrade) return;
-    existing.remove();
-  }
+  if (existing && !triggerCanUpgrade()) return;
+  existing?.remove();
 
+  const nativeTpl = nativeTemplate();
+  const sidebar = document.querySelector(SEL.sidebar);
   if (nativeTpl) nativeTpl.after(buildNativeTrigger(nativeTpl));
   else if (sidebar) sidebar.prepend(buildTrigger(false));
   else document.body.appendChild(buildTrigger(true));
@@ -1541,10 +1551,12 @@ function initUI(): void {
   // thrash it into a mount loop.
   const observer = new MutationObserver(() => {
     const trigger = document.getElementById(TRIGGER_ID);
-    const canUpgrade =
-      trigger?.classList.contains("gce-floating") === true &&
-      document.querySelector(SEL.sidebar) !== null;
-    if (trigger && document.getElementById(MODAL_ID) && !canUpgrade) return;
+    // Re-mount when the trigger or modal is missing, or when an existing
+    // fallback can now be upgraded to a better form (e.g. custom → native once
+    // Gemini renders the nav rows). triggerCanUpgrade covers every fallback,
+    // not just floating.
+    if (trigger && document.getElementById(MODAL_ID) && !triggerCanUpgrade())
+      return;
     if (remountQueued) return;
     remountQueued = true;
     setTimeout(() => {
