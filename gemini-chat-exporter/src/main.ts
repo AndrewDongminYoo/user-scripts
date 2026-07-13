@@ -74,16 +74,34 @@ function getConversationId(): string | null {
   const m = window.location.pathname.match(/\/app\/([0-9a-f]+)/i);
   return m ? m[1] : null;
 }
+// Collapse all whitespace (incl. stray newlines/tabs) to single spaces and
+// trim. Gemini's conversation titles — especially the ones from the Export-All
+// list RPC — can arrive with a trailing newline, which otherwise leaks into the
+// YAML frontmatter and the `# title` heading. Normalize at every title source.
+function normalizeTitle(v: string): string {
+  return v.replace(/\s+/g, " ").trim();
+}
+
 function getTitle(): string {
   return (
-    document.title.replace(/\s*-\s*Google Gemini\s*$/, "").trim() ||
+    normalizeTitle(document.title.replace(/\s*-\s*Google Gemini\s*$/, "")) ||
     "Gemini conversation"
   );
 }
 
-/** Quotes a YAML scalar, escaping backslashes before quotes (order matters). */
+/**
+ * Quotes a YAML double-quoted scalar. Escapes backslashes first (order
+ * matters), then quotes, then the control characters that would break a
+ * single-line double-quoted scalar — a raw newline in the title otherwise
+ * splits the frontmatter mid-value.
+ */
 function yamlStr(v: string): string {
-  return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  return `"${v
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")}"`;
 }
 
 /** ---------- Batchexecute transport (observe-replay) ---------- */
@@ -979,7 +997,7 @@ function parseListPage(payload: unknown): {
       const title = e[1];
       if (typeof rawId !== "string" || typeof title !== "string") continue;
       const id = rawId.replace(/^c_/, "");
-      if (CONV_ID_RE.test(id)) refs.push({ id, title });
+      if (CONV_ID_RE.test(id)) refs.push({ id, title: normalizeTitle(title) });
     }
   }
   return { refs, cursor };
@@ -1468,4 +1486,6 @@ else
   listAllConversations,
   exportAllConversations,
   formatExportSummary,
+  normalizeTitle,
+  yamlStr,
 };
