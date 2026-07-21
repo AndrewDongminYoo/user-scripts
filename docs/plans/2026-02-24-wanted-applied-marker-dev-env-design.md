@@ -3,6 +3,8 @@
 **Date**: 2026-02-24
 **Status**: Completed (implemented in `wanted-applied-marker/`)
 
+**Historical snapshot**: The metadata and runtime examples below document the 2026-02-24 migration and are not the current behavior contract. The later [reliability and release hardening design](2026-07-21-reliability-and-release-hardening-design.md) added apex-host and slashless `/wdlist` coverage, an exact runtime pathname guard, same-origin API requests, retry recovery, queued-job deduplication, and a VM test harness. Use [`wanted-applied-marker/vite.config.ts`](../../wanted-applied-marker/vite.config.ts) and [`wanted-applied-marker/src/main.ts`](../../wanted-applied-marker/src/main.ts) as the current sources of truth.
+
 ## Repository State At Design Time
 
 - `wanted-marker.js` at repo root was the runtime source-of-truth (since removed by the migration).

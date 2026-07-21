@@ -6,6 +6,8 @@
 **Status**: Completed
 **Execution note**: Implemented — `wanted-applied-marker/src/main.ts` and `vite.config.ts` now build `dist/wanted-applied-marker.user.js`; the scaffold template files described below have been removed.
 
+**Historical snapshot**: The metadata, scheduler, and API examples below record the 2026-02-24 migration rather than the current runtime contract. The later [reliability hardening implementation plan](2026-07-21-reliability-and-release-hardening.md) supersedes those examples with apex-host and slashless `/wdlist` coverage, an exact runtime pathname guard, same-origin API requests, retry recovery, queued-job deduplication, and a VM test harness. Use [`wanted-applied-marker/vite.config.ts`](../../wanted-applied-marker/vite.config.ts) and [`wanted-applied-marker/src/main.ts`](../../wanted-applied-marker/src/main.ts) as the current sources of truth.
+
 **Goal:** Replace the default Vite counter template in `wanted-applied-marker/` with a proper userscript dev environment that builds `dist/wanted-applied-marker.user.js` via `vite-plugin-monkey`.
 
 **Architecture:** `vite-plugin-monkey` manages the Tampermonkey metadata header and GM API declarations; TypeScript source lives in `src/main.ts`; `pnpm build` outputs a single `.user.js` ready for Tampermonkey installation.
