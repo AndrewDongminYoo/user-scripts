@@ -1,5 +1,10 @@
 # Gemini Chat Exporter Implementation Plan
 
+Date: 2026-07-12
+Status: Completed (historical implementation plan; later Export-All work supersedes relevant sections)
+
+**Historical snapshot**: This plan records the incremental implementation path, including superseded `document-idle`, navigation-based Export-All, and partial-export acceptance steps. The shipped Export-All contract is documented in the [completed batchexecute blueprint](2026-07-12-gemini-export-all-batchexecute-blueprint.md) and the [current package guide](../../gemini-chat-exporter/AGENTS.md). Use [`gemini-chat-exporter/vite.config.ts`](../../gemini-chat-exporter/vite.config.ts) and [`gemini-chat-exporter/src/main.ts`](../../gemini-chat-exporter/src/main.ts) as the current metadata and runtime sources of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a `gemini-chat-exporter/` userscript that exports gemini.google.com conversations (current one, or all) to Markdown/JSON by scraping the rendered DOM, modeled on the existing `claude-chat-exporter/`.

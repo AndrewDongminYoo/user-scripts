@@ -1,8 +1,10 @@
 # Gemini Chat Exporter — Design
 
 Date: 2026-07-12
-Status: Draft (awaiting review)
+Status: Completed (historical design; superseded)
 Package: `gemini-chat-exporter/` (new)
+
+**Historical snapshot**: This document records the initial DOM-navigation design and is not the current Export-All contract. The shipped implementation uses `document-start`, `unsafeWindow`, and `batchexecute` observe-replay with pinned list/content RPC identifiers, as documented in the [completed Export-All blueprint](2026-07-12-gemini-export-all-batchexecute-blueprint.md). Use [`gemini-chat-exporter/vite.config.ts`](../../gemini-chat-exporter/vite.config.ts) and [`gemini-chat-exporter/src/main.ts`](../../gemini-chat-exporter/src/main.ts) as the current sources of truth.
 
 ## Goal
 
