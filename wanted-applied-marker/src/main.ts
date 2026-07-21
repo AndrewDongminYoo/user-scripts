@@ -95,7 +95,7 @@ function markApplied(
 
 /** ---------- Network ---------- */
 async function fetchDetails(jobId: number): Promise<JobDetailResponse> {
-  const url = `https://www.wanted.co.kr/api/chaos/jobs/v4/${jobId}/details?ts=${Date.now()}`;
+  const url = `/api/chaos/jobs/v4/${jobId}/details?ts=${Date.now()}`;
   const res = await fetch(url, {
     method: "GET",
     credentials: "include",
@@ -203,13 +203,19 @@ function scheduleScan(): void {
   debounceTimer = setTimeout(scanAndApply, 300);
 }
 
-const observer = new MutationObserver(() => {
-  scheduleScan();
-});
+function isWantedListPage(pathname: string): boolean {
+  return pathname === "/wdlist" || pathname.startsWith("/wdlist/");
+}
 
-observer.observe(document.documentElement, {
-  childList: true,
-  subtree: true,
-});
+if (isWantedListPage(window.location.pathname)) {
+  const observer = new MutationObserver(() => {
+    scheduleScan();
+  });
 
-scanAndApply();
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  scanAndApply();
+}

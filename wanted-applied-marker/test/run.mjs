@@ -41,6 +41,8 @@ function makeSandbox({ anchors, fetchImpl, pathname = "/wdlist" }) {
   const gmStore = {};
   let observerCallback = null;
   let nextTimerId = 1;
+  let observeCalls = 0;
+  let queryCalls = 0;
 
   const globals = {
     console: {
@@ -73,14 +75,19 @@ function makeSandbox({ anchors, fetchImpl, pathname = "/wdlist" }) {
     },
     document: {
       documentElement: {},
-      querySelectorAll: () => anchors,
+      querySelectorAll: () => {
+        queryCalls++;
+        return anchors;
+      },
       createElement: () => ({ className: "", style: {}, textContent: "" }),
     },
     MutationObserver: class {
       constructor(callback) {
         observerCallback = callback;
       }
-      observe() {}
+      observe() {
+        observeCalls++;
+      }
     },
   };
   globals.globalThis = globals;
@@ -90,6 +97,12 @@ function makeSandbox({ anchors, fetchImpl, pathname = "/wdlist" }) {
   return {
     errors,
     gmStore,
+    get observeCalls() {
+      return observeCalls;
+    },
+    get queryCalls() {
+      return queryCalls;
+    },
     triggerMutation() {
       observerCallback?.();
     },
@@ -126,6 +139,49 @@ async function captureUnhandled(task) {
   } finally {
     process.off("unhandledRejection", listener);
   }
+}
+
+check(
+  "metadata covers www wdlist variants",
+  source.includes("// @match        https://www.wanted.co.kr/wdlist*"),
+);
+check(
+  "metadata covers apex wdlist variants",
+  source.includes("// @match        https://wanted.co.kr/wdlist*"),
+);
+
+for (const pathname of ["/wdlist", "/wdlist/", "/wdlist/123"]) {
+  const calls = [];
+  makeSandbox({
+    anchors: [makeAnchor(5)],
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return okResponse();
+    },
+    pathname,
+  });
+  await flush();
+  check(`runtime accepts ${pathname}`, calls.length === 1);
+  check(
+    `API request is same-origin for ${pathname}`,
+    calls[0]?.startsWith("/api/chaos/jobs/v4/5/details?ts=") === true,
+  );
+}
+
+{
+  const calls = [];
+  const sandbox = makeSandbox({
+    anchors: [makeAnchor(5)],
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return okResponse();
+    },
+    pathname: "/wdlisting",
+  });
+  await flush();
+  check("runtime rejects non-wdlist prefix", calls.length === 0);
+  check("rejected path skips DOM scan", sandbox.queryCalls === 0);
+  check("rejected path skips observer", sandbox.observeCalls === 0);
 }
 
 // Given three occupied slots and two cards for a fourth job, when the slot
