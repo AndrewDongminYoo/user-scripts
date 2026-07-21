@@ -1,7 +1,7 @@
 # Userscript Reliability and Release Hardening Design
 
 Date: 2026-07-21
-Status: Approved
+Status: Completed
 
 ## Goal
 

@@ -3,6 +3,8 @@
 Date: 2026-07-21
 Status: In progress
 
+Progress: Tasks 1–5 and Task 6 Steps 1, 2, and 4 are complete. The exact-final-SHA review in Task 6 Step 3 remains before this plan can be marked completed.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Resolve the repository review findings and submit one focused draft pull request with regression coverage and a green full-repository gate.
@@ -253,7 +255,7 @@ Add Gemini to the root scripts table and document all three built-bundle harness
 Replace Claude's stale “two floating buttons” wording with the current trigger/modal interaction.
 Mark the Gemini reconnaissance as implemented with the pinned-RPC divergence.
 Remove the trailing space inside the code span at the existing MD038 location.
-Set both new plan documents to `Completed` only after implementation and verification are done.
+Set the design document to `Completed` after implementation and verification. Keep this implementation plan `In progress` until its exact-final-SHA review is complete.
 
 - [ ] **Step 2: Run documentation checks and commit**
 
