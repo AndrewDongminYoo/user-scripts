@@ -20,6 +20,13 @@ function check(name, cond) {
   }
 }
 
+class SandboxURL extends URL {
+  static createObjectURL() {
+    return "blob:x";
+  }
+  static revokeObjectURL() {}
+}
+
 // A fixture DOM node with just enough surface for the extractor.
 function node({ text = "", query = {}, queryAll = {}, attrs = {} } = {}) {
   return {
@@ -64,7 +71,14 @@ function elNode(name, children = [], attrs = {}) {
   return elem;
 }
 
-function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
+function makeSandbox({
+  pathname,
+  title,
+  turns,
+  settings,
+  revealSchedule,
+  fetchImpl,
+}) {
   let lastBlob = null;
   let resolveDownload;
   const downloaded = new Promise((r) => (resolveDownload = r));
@@ -148,6 +162,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
   const gmStore = { gce_settings: settings };
   const globals = {
     window: { location: { pathname } },
+    location: { origin: "https://gemini.google.com" },
     document: {
       title,
       documentElement: {},
@@ -183,7 +198,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     MutationObserver: class {
       observe() {}
     },
-    URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} },
+    URL: SandboxURL,
     Blob: class {
       constructor(parts, opts) {
         lastBlob = { text: parts.join(""), type: opts?.type ?? "" };
@@ -204,6 +219,7 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     // Uint8Array; expose them to the vm context.
     TextEncoder,
     Uint8Array,
+    fetch: fetchImpl,
   };
   globals.globalThis = globals;
   vm.createContext(globals);
@@ -973,6 +989,79 @@ function makeSandbox({ pathname, title, turns, settings, revealSchedule }) {
     skipped: 0,
   });
   check("summary omits zero counts", clean === "2 exported");
+}
+
+function wrapRpc(rpcid, payload) {
+  const row = JSON.stringify([
+    ["wrb.fr", rpcid, JSON.stringify(payload), null, null, "generic"],
+  ]);
+  return `)]}'\n\n${Buffer.byteLength(row)}\n${row}\n`;
+}
+
+async function makeListHarness(responsePayload) {
+  let recordingTemplate = true;
+  let replayCount = 0;
+  const { globals } = makeSandbox({
+    pathname: "/app/list001",
+    title: "List test - Google Gemini",
+    settings: {
+      format: "md",
+      frontmatter: false,
+      includeThinking: true,
+      includeAttachments: true,
+    },
+    turns: [],
+    fetchImpl: async () => {
+      if (recordingTemplate) return { text: async () => "" };
+      const payload = responsePayload(replayCount++);
+      return { text: async () => wrapRpc("MaZiqc", payload) };
+    },
+  });
+  const outer = [[["MaZiqc", JSON.stringify([null, null]), null, "generic"]]];
+  await globals.fetch(
+    "https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=MaZiqc&_reqid=100",
+    {
+      method: "POST",
+      body: `f.req=${encodeURIComponent(JSON.stringify(outer))}&at=token`,
+    },
+  );
+  recordingTemplate = false;
+  return { internals: globals.__gceInternals, replayCount: () => replayCount };
+}
+
+// --- Test: Export-All list pagination never reports a partial list as done ---
+{
+  const { internals } = await makeListHarness(() => [null, "NEXT", []]);
+  let error = null;
+  try {
+    await internals.listAllConversations();
+  } catch (cause) {
+    error = cause;
+  }
+  check(
+    "list: cursor with empty page throws",
+    error?.message.includes("불완전") === true,
+  );
+}
+
+{
+  const id = "c".repeat(16);
+  const { internals, replayCount } = await makeListHarness(() => [
+    null,
+    "NEXT",
+    [[`c_${id}`, "Only chat", 0]],
+  ]);
+  let error = null;
+  try {
+    await internals.listAllConversations();
+  } catch (cause) {
+    error = cause;
+  }
+  check(
+    "list: page cap exhaustion throws",
+    error?.message.includes("페이지 한도") === true,
+  );
+  check("list: page cap remains bounded", replayCount() === 200);
 }
 
 // --- Test: Export-All arming miss surfaces the guidance (not a bare "Failed") ---

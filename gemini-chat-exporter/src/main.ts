@@ -1037,11 +1037,17 @@ async function listAllConversations(): Promise<ConvRef[]> {
       );
     const { refs, cursor: next } = parseListPage(payload);
     for (const r of refs) if (!byId.has(r.id)) byId.set(r.id, r.title);
-    if (!next || refs.length === 0) break;
+    if (!next) return [...byId].map(([id, title]) => ({ id, title }));
+    if (refs.length === 0)
+      throw new Error(
+        "대화 목록 응답이 불완전합니다. 잠시 후 다시 시도하세요.",
+      );
     cursor = next;
     await bxSleep(300);
   }
-  return [...byId].map(([id, title]) => ({ id, title }));
+  throw new Error(
+    "대화 목록 페이지 한도에 도달했습니다. 잠시 후 다시 시도하세요.",
+  );
 }
 
 /** ---------- Export-All: orchestrator ---------- */
