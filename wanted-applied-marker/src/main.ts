@@ -4,6 +4,7 @@
 const CACHE_KEY = "wanted_applied_cache_v2";
 const TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const CONCURRENCY = 3;
+const RETRY_DELAY_MS = 500;
 const HIDE_APPLIED = false;
 
 /** ---------- Types ---------- */
@@ -39,9 +40,9 @@ const isFresh = (entry: CacheEntry | undefined): boolean =>
 let cache: Cache = loadCache();
 
 /** ---------- State ---------- */
-const inflight = new Map<number, Promise<CacheEntry>>();
 const seenAnchors = new WeakSet<Element>();
-let queue: Array<{ jobId: number; anchor: HTMLAnchorElement }> = [];
+const pendingAnchors = new Map<number, Set<HTMLAnchorElement>>();
+const queue: number[] = [];
 let running = 0;
 
 /** ---------- DOM ---------- */
@@ -109,6 +110,21 @@ async function fetchDetails(jobId: number): Promise<JobDetailResponse> {
   return res.json() as Promise<JobDetailResponse>;
 }
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchDetailsWithRetry(
+  jobId: number,
+): Promise<JobDetailResponse> {
+  try {
+    return await fetchDetails(jobId);
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    await sleep(RETRY_DELAY_MS);
+    return fetchDetails(jobId);
+  }
+}
+
 function enqueue(jobId: number, anchor: HTMLAnchorElement): void {
   const entry = cache[jobId];
   if (isFresh(entry)) {
@@ -116,48 +132,57 @@ function enqueue(jobId: number, anchor: HTMLAnchorElement): void {
     return;
   }
 
-  if (inflight.has(jobId)) {
-    inflight
-      .get(jobId)!
-      .then((e) => {
-        if (e.applied) markApplied(anchor, e.statusText);
-      })
-      .catch(() => {});
+  const pending = pendingAnchors.get(jobId);
+  if (pending) {
+    pending.add(anchor);
     return;
   }
 
-  queue.push({ jobId, anchor });
+  pendingAnchors.set(jobId, new Set([anchor]));
+  queue.push(jobId);
   pump();
+}
+
+async function processJob(jobId: number): Promise<void> {
+  try {
+    const json = await fetchDetailsWithRetry(jobId);
+    const app = json.data?.application ?? null;
+
+    const entry: CacheEntry = {
+      applied: app != null,
+      statusText: app?.status_text ?? null,
+      updatedAt: now(),
+    };
+    cache[jobId] = entry;
+    saveCache(cache);
+
+    if (entry.applied) {
+      for (const anchor of pendingAnchors.get(jobId) ?? [])
+        markApplied(anchor, entry.statusText);
+    }
+  } catch (error) {
+    const cause =
+      error instanceof Error ? error : new Error("unknown job details failure");
+    console.error(`[wanted-applied-marker] job ${jobId} failed`, cause);
+    for (const anchor of pendingAnchors.get(jobId) ?? [])
+      seenAnchors.delete(anchor);
+  } finally {
+    pendingAnchors.delete(jobId);
+    running--;
+    pump();
+  }
 }
 
 function pump(): void {
   while (running < CONCURRENCY && queue.length > 0) {
-    const { jobId, anchor } = queue.shift()!;
+    const jobId = queue.shift();
+    if (jobId === undefined) return;
     running++;
-
-    const p = (async (): Promise<CacheEntry> => {
-      try {
-        const json = await fetchDetails(jobId);
-        const app = json?.data?.application ?? null;
-
-        const entry: CacheEntry = {
-          applied: app != null,
-          statusText: app?.status_text ?? null,
-          updatedAt: now(),
-        };
-        cache[jobId] = entry;
-        saveCache(cache);
-
-        if (entry.applied) markApplied(anchor, entry.statusText);
-        return entry;
-      } finally {
-        running--;
-        inflight.delete(jobId);
-        pump();
-      }
-    })();
-
-    inflight.set(jobId, p);
+    processJob(jobId).catch((error: unknown) => {
+      const cause =
+        error instanceof Error ? error : new Error("unknown scheduler failure");
+      console.error("[wanted-applied-marker] scheduler failed", cause);
+    });
   }
 }
 
