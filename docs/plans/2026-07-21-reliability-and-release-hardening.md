@@ -181,7 +181,7 @@ Expected: all existing and new Gemini checks pass.
 
 ```bash
 git add gemini-chat-exporter/src/main.ts gemini-chat-exporter/test/run.mjs
-git commit -m "fix(gemini-chat-exporter): reject incomplete list pagination"
+git commit -m "fix(gemini-chat-exporter): reject partial conversation lists"
 ```
 
 ### Task 4: Dependency and workflow supply-chain hardening
@@ -205,7 +205,7 @@ Resolve each workflow tag through the GitHub API and dereference annotated tags 
 
 - [ ] **Step 2: Apply the dependency override and regenerate the lockfile**
 
-Set `brace-expansion: ^1.1.16 # GHSA-3jxr-9vmj-r5cp` in `pnpm-workspace.yaml`.
+Set `brace-expansion: ^1.1.16` in `pnpm-workspace.yaml`.
 Run: `pnpm install --no-frozen-lockfile`
 Expected: `pnpm-lock.yaml` resolves `brace-expansion` to at least `1.1.16`.
 
@@ -216,7 +216,7 @@ Do not change permissions, triggers, job logic, or Action versions.
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `pnpm why brace-expansion -r && .trunk/tools/osv-scanner scan --lockfile=pnpm-lock.yaml && pnpm build`
+Run: `pnpm -r why brace-expansion && .trunk/tools/osv-scanner scan source --lockfile pnpm-lock.yaml && pnpm build`
 Expected: safe version resolved, OSV exits 0, and all packages build.
 
 ```bash
@@ -229,8 +229,12 @@ git commit -m "build: harden dependency and workflow inputs"
 **Files:**
 
 - Modify: `wanted-applied-marker/README.md`
+- Modify: `wanted-applied-marker/AGENTS.md`
 - Modify: `README.md`
+- Modify: `AGENTS.md`
+- Modify: `CLAUDE.md`
 - Modify: `claude-chat-exporter/README.md`
+- Modify: `gemini-chat-exporter/AGENTS.md`
 - Modify: `docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md`
 - Modify: `docs/plans/2026-07-12-gemini-chat-exporter.md`
 - Modify: `docs/plans/2026-07-21-reliability-and-release-hardening-design.md`
@@ -245,7 +249,7 @@ git commit -m "build: harden dependency and workflow inputs"
 
 Replace Wanted's repository-wide latest asset link with the package-filtered releases instructions used by its siblings.
 Document both Wanted hosts and accepted `/wdlist` path forms.
-Add Gemini to the root scripts table and name both exporter harnesses.
+Add Gemini to the root scripts table and document all three built-bundle harnesses.
 Replace Claude's stale “two floating buttons” wording with the current trigger/modal interaction.
 Mark the Gemini reconnaissance as implemented with the pinned-RPC divergence.
 Remove the trailing space inside the code span at the existing MD038 location.
@@ -253,11 +257,11 @@ Set both new plan documents to `Completed` only after implementation and verific
 
 - [ ] **Step 2: Run documentation checks and commit**
 
-Run: `trunk check README.md wanted-applied-marker/README.md claude-chat-exporter/README.md docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md docs/plans/2026-07-12-gemini-chat-exporter.md docs/plans/2026-07-21-reliability-and-release-hardening-design.md docs/plans/2026-07-21-reliability-and-release-hardening.md`
+Run: `trunk check README.md AGENTS.md CLAUDE.md wanted-applied-marker/README.md wanted-applied-marker/AGENTS.md claude-chat-exporter/README.md gemini-chat-exporter/AGENTS.md docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md docs/plans/2026-07-12-gemini-chat-exporter.md docs/plans/2026-07-21-reliability-and-release-hardening-design.md docs/plans/2026-07-21-reliability-and-release-hardening.md`
 Expected: no issues.
 
 ```bash
-git add README.md wanted-applied-marker/README.md claude-chat-exporter/README.md docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md docs/plans/2026-07-12-gemini-chat-exporter.md docs/plans/2026-07-21-reliability-and-release-hardening-design.md docs/plans/2026-07-21-reliability-and-release-hardening.md
+git add README.md AGENTS.md CLAUDE.md wanted-applied-marker/README.md wanted-applied-marker/AGENTS.md claude-chat-exporter/README.md gemini-chat-exporter/AGENTS.md docs/plans/2026-07-12-gemini-export-all-batchexecute-blueprint.md docs/plans/2026-07-12-gemini-chat-exporter.md docs/plans/2026-07-21-reliability-and-release-hardening-design.md docs/plans/2026-07-21-reliability-and-release-hardening.md
 git commit -m "docs: align userscript behavior and release guidance"
 ```
 

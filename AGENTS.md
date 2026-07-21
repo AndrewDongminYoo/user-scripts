@@ -53,7 +53,7 @@ Run from repo root:
 pnpm install
 pnpm build       # build all packages (pnpm -r build)
 pnpm typecheck   # tsc --noEmit across packages
-pnpm -r test     # run each package's test harness (claude-chat-exporter and gemini-chat-exporter)
+pnpm -r test     # run each package's built-bundle test harness
 trunk check
 trunk fmt
 ```
@@ -64,7 +64,7 @@ Run from a package directory (e.g. `wanted-applied-marker/`, `claude-chat-export
 pnpm dev
 pnpm build
 pnpm preview
-pnpm test        # claude-chat-exporter and gemini-chat-exporter (Node harness over the built dist)
+pnpm test        # Node harness over the built dist
 ```
 
 ## Documentation Alignment Rules

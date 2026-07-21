@@ -54,7 +54,7 @@ All GitHub Actions `uses:` references in check and release workflows will be pin
 ### Documentation alignment
 
 The Wanted installation instructions will stop using the repository-wide `releases/latest` asset URL.
-The root README will list Gemini and both exporter test harnesses.
+The root README will list Gemini and all three built-bundle test harnesses.
 The Gemini Export-All reconnaissance blueprint will state that implementation shipped and document the deliberate pinned-RPC divergence.
 The known Markdown lint violation and stale Claude UI wording will be corrected without changing runtime behavior.
 

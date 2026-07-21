@@ -72,7 +72,9 @@ pnpm test
   - **List = `MaZiqc`** (`listAllConversations`): `payload[2]` = conversation
     entries, entry`[0]` = `"c_<id>"`, entry`[1]` = title; `payload[1]` = the
     next-page cursor (empty/absent → last page), passed back as `args[1]` (a
-    null cursor starts at page 1). Paged from the start, deduped by id.
+    null cursor starts at page 1). Paged from the start, deduped by id. A
+    cursor with an empty page and exhaustion of the 200-page guard both fail
+    explicitly instead of returning an incomplete list.
   - **Content = `hNvQHb`** (`fetchConversationContent` /
     `parseContentPayload`): `payload[0]` = per-turn array; per turn, prompt =
     `turn[2][0][0]`, response Markdown source = `turn[3][0][0][1][0]`.

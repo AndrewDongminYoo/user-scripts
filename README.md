@@ -9,6 +9,7 @@ Every package builds to a single `dist/<name>.user.js` that is published as a Gi
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`wanted-applied-marker`](wanted-applied-marker/README.md) | Marks already-applied jobs on Wanted.co.kr listings, using the site's `chaos/jobs` API with a 14-day cache.                                                                                        |
 | [`claude-chat-exporter`](claude-chat-exporter/README.md)   | Exports Claude.ai conversations — the current one, or all of them — to Markdown or JSON via the site's same-origin API. Captures text, extended thinking, tool calls/results, and attachment text. |
+| [`gemini-chat-exporter`](gemini-chat-exporter/README.md)   | Exports Gemini conversations to Markdown or JSON, with current-chat DOM extraction and batchexecute-based Export All ZIP support.                                                                  |
 
 ## Install a script
 
@@ -24,7 +25,7 @@ This repo uses **pnpm** exclusively (`pnpm@10.26.2`, pinned via `packageManager`
 pnpm install       # install all workspace dependencies
 pnpm build         # build every package (pnpm -r build)
 pnpm typecheck     # tsc --noEmit across packages
-pnpm -r test       # run each package's test harness (currently claude-chat-exporter)
+pnpm -r test       # run every package's built-bundle test harness
 trunk check        # lint + format check
 ```
 
