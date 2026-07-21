@@ -31,7 +31,7 @@ Monorepo-wide commands (from root):
 ```sh
 pnpm build       # Build all packages
 pnpm typecheck   # Type-check all packages (tsc --noEmit)
-pnpm -r test     # Run each package's test harness (currently claude-chat-exporter, gemini-chat-exporter)
+pnpm -r test     # Run each package's built-bundle test harness
 ```
 
 ## Architecture
@@ -49,9 +49,12 @@ Each script lives in its own subdirectory with `vite-plugin-monkey`:
 
 - **Cache**: Stores apply status per `jobId` with 14-day TTL via `GM_getValue`/`GM_setValue`
 - **Concurrency**: Max 3 simultaneous API calls (`CONCURRENCY = 3`), queued via `pump()`
-- **Deduplication**: `inflight` Map prevents duplicate in-flight requests for the same `jobId`; `seenAnchors` WeakSet prevents re-processing the same DOM node
+- **Deduplication**: `pendingAnchors` groups every queued or running card by `jobId`, so duplicate cards share one request; `seenAnchors` prevents re-processing the same DOM node
+- **Failure recovery**: Details requests retry once after 500 ms; final failures are consumed and affected anchors become eligible for a later scan
 - **Infinite scroll**: `MutationObserver` on `document.documentElement` triggers debounced re-scan (300ms)
-- **API**: `https://www.wanted.co.kr/api/chaos/jobs/v4/{jobId}/details` — checks `data.application` field for apply status
+- **URL boundary**: Metadata covers `www.wanted.co.kr` and `wanted.co.kr` with `/wdlist*`; runtime accepts only `/wdlist` and `/wdlist/...`
+- **API**: Same-origin `/api/chaos/jobs/v4/{jobId}/details` — checks `data.application` for apply status
+- **Tests**: `wanted-applied-marker/test/run.mjs` runs the built bundle in a Node VM sandbox and covers scheduling, retry, URL, metadata, and API-origin behavior
 
 ### claude-chat-exporter Key Design
 
@@ -87,7 +90,7 @@ See `gemini-chat-exporter/AGENTS.md` for the full design notes. Highlights:
 
 ### Check Workflow
 
-Runs `pnpm typecheck`, `pnpm -r build`, `pnpm -r test` (the per-package Node harnesses), then `trunk-io/trunk-action@v1` (lint/format). All branches must pass before merge.
+Runs `pnpm typecheck`, `pnpm -r build`, `pnpm -r test` (the per-package Node harnesses), then the SHA-pinned Trunk Action (lint/format). All branches must pass before merge.
 
 ### Release Workflow
 

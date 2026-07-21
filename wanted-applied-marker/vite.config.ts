@@ -14,7 +14,10 @@ export default defineConfig({
         description:
           "Mark/hide already-applied jobs on Wanted list. Works with infinite scroll.",
         author: "Dongmin, Yu",
-        match: ["https://www.wanted.co.kr/wdlist/*"],
+        match: [
+          "https://www.wanted.co.kr/wdlist*",
+          "https://wanted.co.kr/wdlist*",
+        ],
         "run-at": "document-idle",
         grant: ["GM_getValue", "GM_setValue"],
       },

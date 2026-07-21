@@ -1,5 +1,10 @@
 # Gemini Chat Exporter Implementation Plan
 
+Date: 2026-07-12
+Status: Completed (historical implementation plan; later Export-All work supersedes relevant sections)
+
+**Historical snapshot**: This plan records the incremental implementation path, including superseded `document-idle`, navigation-based Export-All, and partial-export acceptance steps. The shipped Export-All contract is documented in the [completed batchexecute blueprint](2026-07-12-gemini-export-all-batchexecute-blueprint.md) and the [current package guide](../../gemini-chat-exporter/AGENTS.md). Use [`gemini-chat-exporter/vite.config.ts`](../../gemini-chat-exporter/vite.config.ts) and [`gemini-chat-exporter/src/main.ts`](../../gemini-chat-exporter/src/main.ts) as the current metadata and runtime sources of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a `gemini-chat-exporter/` userscript that exports gemini.google.com conversations (current one, or all) to Markdown/JSON by scraping the rendered DOM, modeled on the existing `claude-chat-exporter/`.
@@ -776,7 +781,7 @@ function htmlToMarkdown(root: Element | null): string {
 - [ ] **Step 3: Run tests to verify they pass**
 
 Run: `pnpm build && pnpm test`
-Expected: all fidelity checks PASS (`h2 -> ##`, `bold -> **`, `ul -> - `, `code fence + lang`, `link -> []()`), plus Task 1 checks still green.
+Expected: all fidelity checks PASS (`h2 -> ##`, `bold -> **`, `ul -> -`, `code fence + lang`, `link -> []()`), plus Task 1 checks still green.
 
 - [ ] **Step 4: Add nested-list + table assertions** (edge cases the converter must not crash on): a `<ul>` with a nested `<ul>`, and a 2-row `<table>` with a header. Assert output contains the table separator row `| --- |` and both data rows. Fix `listMd`/`tableMd` if they fail.
 

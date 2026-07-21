@@ -1,8 +1,18 @@
 # Gemini Export-All via batchexecute (observe-replay) — Reconnaissance Blueprint
 
 Date: 2026-07-12
-Status: Verified reconnaissance (not yet implemented). Feeds the v1.1 Export-All build.
-Context: Export-All was descoped from v1 because DOM navigation is infeasible from a userscript; this blueprint is the alternative that IS feasible.
+Status: Completed
+Context: Export-All shipped from this reconnaissance, with the implementation differences recorded below.
+
+## Shipped implementation
+
+The production implementation is in `gemini-chat-exporter/src/main.ts`, with built-bundle regression coverage in `gemini-chat-exporter/test/run.mjs`.
+It preserves the observe-replay transport but deliberately pins the verified RPC identifiers `MaZiqc` for the conversation list and `hNvQHb` for conversation content instead of dynamically learning their semantic roles.
+The request templates, build label, session tokens, headers, and `_reqid` sequence are still learned from the app's own traffic each session.
+This means ordinary build/token rotation self-heals, while an RPC identifier or payload-shape rotation requires a small code update.
+List enumeration returns only after the server cursor is exhausted; a cursor with an empty page, an undecodable response after retry, or the 200-page guard raises an error rather than producing a partial export.
+
+The remaining sections preserve the original reconnaissance record and may describe alternatives that were superseded by the shipped choices above.
 
 ## Why this exists
 

@@ -9,11 +9,13 @@
 - 지원 상태 텍스트가 있으면 `지원완료 (상태)` 형태로 표시
 - 무한 스크롤로 새로 로드된 공고도 자동 스캔
 - `GM_getValue`/`GM_setValue` 기반 14일 캐시로 API 호출 최소화
+- 일시적 상세 API 실패 시 500ms 뒤 한 번 재시도하고, 최종 실패한 카드는 이후 DOM 스캔에서 다시 확인
 
 ## 동작 환경
 
 - 브라우저 확장: Tampermonkey(권장) 또는 호환 userscript 매니저
-- 대상 페이지: `https://www.wanted.co.kr/wdlist/*`
+- 대상 호스트: `https://www.wanted.co.kr` 및 `https://wanted.co.kr`
+- 대상 경로: `/wdlist`, `/wdlist/`, `/wdlist/...`와 각 경로의 쿼리·프래그먼트 변형
 - 로그인 상태에서 동작 (Wanted API 응답 필요)
 
 ## 설치 방법 (권장: 릴리즈 배포본)
@@ -21,12 +23,14 @@
 이 저장소는 `main` 브랜치 릴리즈 시 userscript 파일을 자동 생성/업로드합니다.
 일반 사용자는 저장소를 클론하거나 `dist`를 직접 빌드할 필요가 없습니다.
 
+릴리즈는 **패키지별로 태그**됩니다(`wanted-applied-marker-<날짜>`). 저장소 전역 `releases/latest`는 다른 패키지의 릴리즈가 더 최신이면 Wanted 파일을 찾지 못하므로 사용하지 않습니다.
+
 1. Tampermonkey를 설치합니다.
-2. 아래 최신 배포본 링크를 브라우저에서 엽니다.
+2. 아래 링크에서 가장 최근 `wanted-applied-marker-*` 릴리즈를 엽니다.
 
-- https://github.com/AndrewDongminYoo/user-scripts/releases/latest/download/wanted-applied-marker.user.js
+- https://github.com/AndrewDongminYoo/user-scripts/releases?q=wanted-applied-marker&expanded=true
 
-3. Tampermonkey 설치 화면에서 스크립트를 설치합니다.
+3. 그 릴리즈의 Assets에서 `wanted-applied-marker.user.js`를 열어 Tampermonkey 설치 화면에서 설치합니다.
 
 ## 개발 모드 사용 (개발자용)
 
@@ -43,6 +47,7 @@ pnpm dev
 cd wanted-applied-marker
 pnpm install
 pnpm build
+pnpm test
 ```
 
 - 빌드 결과물: `wanted-applied-marker/dist/wanted-applied-marker.user.js`
