@@ -35,7 +35,11 @@ function makeAnchor(jobId) {
   };
 }
 
-function makeSandbox({ anchors, fetchImpl, pathname = "/wdlist" }) {
+function makeSandbox({
+  anchors,
+  fetchImpl,
+  pageUrl = "https://www.wanted.co.kr/wdlist",
+}) {
   const timers = [];
   const errors = [];
   const gmStore = {};
@@ -71,7 +75,7 @@ function makeSandbox({ anchors, fetchImpl, pathname = "/wdlist" }) {
     },
     window: {
       getComputedStyle: () => ({ position: "static" }),
-      location: { pathname },
+      location: new URL(pageUrl),
     },
     document: {
       documentElement: {},
@@ -150,7 +154,13 @@ check(
   source.includes("// @match        https://wanted.co.kr/wdlist*"),
 );
 
-for (const pathname of ["/wdlist", "/wdlist/", "/wdlist/123"]) {
+for (const pageUrl of [
+  "https://www.wanted.co.kr/wdlist",
+  "https://wanted.co.kr/wdlist",
+  "https://www.wanted.co.kr/wdlist/",
+  "https://wanted.co.kr/wdlist/123?country=kr",
+  "https://www.wanted.co.kr/wdlist?tag=frontend#jobs",
+]) {
   const calls = [];
   makeSandbox({
     anchors: [makeAnchor(5)],
@@ -158,12 +168,12 @@ for (const pathname of ["/wdlist", "/wdlist/", "/wdlist/123"]) {
       calls.push(url);
       return okResponse();
     },
-    pathname,
+    pageUrl,
   });
   await flush();
-  check(`runtime accepts ${pathname}`, calls.length === 1);
+  check(`runtime accepts ${pageUrl}`, calls.length === 1);
   check(
-    `API request is same-origin for ${pathname}`,
+    `API request is same-origin for ${pageUrl}`,
     calls[0]?.startsWith("/api/chaos/jobs/v4/5/details?ts=") === true,
   );
 }
@@ -176,7 +186,7 @@ for (const pathname of ["/wdlist", "/wdlist/", "/wdlist/123"]) {
       calls.push(url);
       return okResponse();
     },
-    pathname: "/wdlisting",
+    pageUrl: "https://www.wanted.co.kr/wdlisting?tag=frontend#jobs",
   });
   await flush();
   check("runtime rejects non-wdlist prefix", calls.length === 0);
@@ -200,11 +210,16 @@ for (const pathname of ["/wdlist", "/wdlist/", "/wdlist/123"]) {
   await flush();
   pending.shift()(okResponse());
   await flush();
-  pending.at(-1)(okResponse());
+  pending.at(-1)(okResponse({ status_text: "서류 접수" }));
   await flush();
   check(
     "queued duplicate job fetched once",
     calls.filter((jobId) => jobId === 4).length === 1,
+  );
+  check(
+    "queued duplicate cards share applied result",
+    anchors[3].badgeText?.includes("지원완료") &&
+      anchors[4].badgeText?.includes("지원완료"),
   );
 }
 
