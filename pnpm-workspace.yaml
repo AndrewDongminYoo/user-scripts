@@ -7,9 +7,9 @@ onlyBuiltDependencies:
   - esbuild
 
 overrides:
-  brace-expansion: ^1.1.16
+  brace-expansion: ^1.1.17 # GHSA-mh99-v99m-4gvg
   esbuild: ^0.28.1
   minimatch: ^3.1.4
   picomatch: ^4.0.4
-  postcss: ^8.5.10
+  postcss: ^8.5.18 # GHSA-r28c-9q8g-f849
   vite: ^8.1.4
