@@ -1,6 +1,7 @@
 version: "0.2"
-ignorePaths: []
-allowCompoundWords: true
+ignorePaths:
+  - pnpm-lock.yaml # auto-generated lockfile — not prose
+allowCompoundWords: false
 dictionaryDefinitions:
   - name: custom-dictionary
     path: ./.cspell/custom-dictionary.txt
