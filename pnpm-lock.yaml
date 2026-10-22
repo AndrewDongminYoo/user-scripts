@@ -5,13 +5,14 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  brace-expansion: ^1.1.17
+  brace-expansion@1: ^1.1.21
   esbuild: ^0.28.1
   minimatch: ^3.1.4
   nanoid: ^3.3.18
   picomatch: ^4.0.4
   postcss: ^8.5.18
-  vite: ^8.1.4
+  source-map-js@1: ^1.2.2
+  vite@8: ~8.1.6
 
 importers:
 
@@ -27,11 +28,11 @@ importers:
         specifier: ~6.0.3
         version: 6.0.3
       vite:
-        specifier: ^8.1.4
-        version: 8.1.4(@types/node@26.1.1)(esbuild@0.28.1)
+        specifier: ~8.1.6
+        version: 8.1.6(@types/node@26.1.1)(esbuild@0.28.1)
       vite-plugin-monkey:
         specifier: ^8.0.6
-        version: 8.0.6(postcss@8.5.25)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1))
+        version: 8.0.6(postcss@8.5.25)(vite@8.1.6(@types/node@26.1.1)(esbuild@0.28.1))
 
   gemini-chat-exporter:
     devDependencies:
@@ -39,11 +40,11 @@ importers:
         specifier: ~6.0.3
         version: 6.0.3
       vite:
-        specifier: ^8.1.4
-        version: 8.1.4(@types/node@26.1.1)(esbuild@0.28.1)
+        specifier: ~8.1.6
+        version: 8.1.6(@types/node@26.1.1)(esbuild@0.28.1)
       vite-plugin-monkey:
         specifier: ^8.0.6
-        version: 8.0.6(postcss@8.5.25)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1))
+        version: 8.0.6(postcss@8.5.25)(vite@8.1.6(@types/node@26.1.1)(esbuild@0.28.1))
 
   wanted-applied-marker:
     devDependencies:
@@ -54,11 +55,11 @@ importers:
         specifier: ~6.0.3
         version: 6.0.3
       vite:
-        specifier: ^8.1.4
-        version: 8.1.4(@types/node@26.1.1)(esbuild@0.28.1)
+        specifier: ~8.1.6
+        version: 8.1.6(@types/node@26.1.1)(esbuild@0.28.1)
       vite-plugin-monkey:
         specifier: ^8.0.6
-        version: 8.0.6(postcss@8.5.25)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1))
+        version: 8.0.6(postcss@8.5.25)(vite@8.1.6(@types/node@26.1.1)(esbuild@0.28.1))
 
 packages:
 
@@ -480,8 +481,8 @@ packages:
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
 
-  brace-expansion@1.1.18:
-    resolution: {integrity: sha512-Edep/X9fGqVNmzKBVsDYIOtD+z1tuezV70LBjdCst9Tqu76lsnvRiZ6oTic1n+/BIwX6QDGAO94PN4N2SADvtw==}
+  brace-expansion@1.1.21:
+    resolution: {integrity: sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw==}
 
   bundle-name@4.1.0:
     resolution: {integrity: sha512-tjwM5exMg6BGRI+kNmTntNsvdZS1X8BFYS6tnJ2hdH0kVxM6/eVZ2xy+FqStSWvYmtfFMDLIxurorHwDKfDz5Q==}
@@ -729,8 +730,8 @@ packages:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
 
-  source-map-js@1.2.1:
-    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
+  source-map-js@1.2.2:
+    resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
 
   systemjs@6.15.1:
@@ -754,13 +755,13 @@ packages:
   vite-plugin-monkey@8.0.6:
     resolution: {integrity: sha512-DpNKGLpATKMiFh0m0UaT85oEZYUJ4gtKeaTmL/zyR2jmCmuuybJGC1iI5+wJzLASZpdkTF055UDxVfHtF1RlNQ==}
     peerDependencies:
-      vite: ^8.1.4
+      vite: ~8.1.6
     peerDependenciesMeta:
       vite:
         optional: true
 
-  vite@8.1.4:
-    resolution: {integrity: sha512-bTT9PsdWO+MQMNG9ZXIP/qM9wGh37DFxTV/sPq9cFpHr3w4jkgef032PkAL9jAqhk3Nz8NQw3O8n6/xFkqO4QQ==}
+  vite@8.1.6:
+    resolution: {integrity: sha512-aRAHIxx5SW5zc1sMqFwJU/t5qaFfXb5Hj0J7W0VXihu/X99+346tz6080tO1T1xVIJORX/b3zVTXGFqUXh35uw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -1068,7 +1069,7 @@ snapshots:
 
   balanced-match@1.0.2: {}
 
-  brace-expansion@1.1.18:
+  brace-expansion@1.1.21:
     dependencies:
       balanced-match: 1.0.2
       concat-map: 0.0.1
@@ -1239,7 +1240,7 @@ snapshots:
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 1.1.18
+      brace-expansion: 1.1.21
 
   mrmime@2.0.1: {}
 
@@ -1272,7 +1273,7 @@ snapshots:
     dependencies:
       nanoid: 3.3.18
       picocolors: 1.1.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   powershell-utils@0.1.0: {}
 
@@ -1338,7 +1339,7 @@ snapshots:
 
   shebang-regex@3.0.0: {}
 
-  source-map-js@1.2.1: {}
+  source-map-js@1.2.2: {}
 
   systemjs@6.15.1: {}
 
@@ -1354,7 +1355,7 @@ snapshots:
 
   undici-types@8.3.0: {}
 
-  vite-plugin-monkey@8.0.6(postcss@8.5.25)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)):
+  vite-plugin-monkey@8.0.6(postcss@8.5.25)(vite@8.1.6(@types/node@26.1.1)(esbuild@0.28.1)):
     dependencies:
       acorn-walk: 8.3.5
       cross-spawn: 7.0.6
@@ -1368,11 +1369,11 @@ snapshots:
       rollup: 4.60.4
       systemjs: 6.15.1
     optionalDependencies:
-      vite: 8.1.4(@types/node@26.1.1)(esbuild@0.28.1)
+      vite: 8.1.6(@types/node@26.1.1)(esbuild@0.28.1)
     transitivePeerDependencies:
       - postcss
 
-  vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1):
+  vite@8.1.6(@types/node@26.1.1)(esbuild@0.28.1):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
