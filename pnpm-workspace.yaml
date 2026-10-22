@@ -7,10 +7,11 @@ onlyBuiltDependencies:
   - esbuild
 
 overrides:
-  brace-expansion: ^1.1.17 # GHSA-mh99-v99m-4gvg
+  brace-expansion@1: ^1.1.21 # GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr
   esbuild: ^0.28.1
   minimatch: ^3.1.4
   nanoid: ^3.3.18 # GHSA-2v37-7h3g-55p8
   picomatch: ^4.0.4
   postcss: ^8.5.18 # GHSA-r28c-9q8g-f849
-  vite: ^8.1.4
+  source-map-js@1: ^1.2.2 # GHSA-68fv-2mgg-jv7q
+  vite@8: ~8.1.6 # GHSA-587h-7wmj-h5pm, GHSA-698v-4r3x-3vcv, GHSA-9jrq-w75r-8gcw, GHSA-r825-w8mm-5pxw, GHSA-rq7h-c2jc-7f22
