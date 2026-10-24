@@ -8,12 +8,10 @@ updates:
       timezone: Asia/Seoul
     open-pull-requests-limit: 3
     groups:
-      github-actions-minor-patch:
+      # Every version update, majors included, in one PR; CI runs the actions it bumps.
+      github-actions:
         patterns:
           - "*"
-        update-types:
-          - minor
-          - patch
       github-actions-security:
         applies-to: security-updates
         patterns:
