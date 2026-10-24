@@ -10,7 +10,7 @@
     "test": "node test/run.mjs"
   },
   "devDependencies": {
-    "typescript": "~6.0.3",
+    "typescript": "~7.0.2",
     "vite": "^8.3.4",
     "vite-plugin-monkey": "^8.1.1"
   }
