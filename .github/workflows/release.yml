@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -95,7 +95,7 @@ jobs:
 
       - name: Create GitHub Release and upload asset
         if: steps.check.outputs.release_needed == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "${{ matrix.package }} ${{ steps.version.outputs.version }}"
