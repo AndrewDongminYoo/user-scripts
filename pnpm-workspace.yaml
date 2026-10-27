@@ -14,4 +14,4 @@ overrides:
   picomatch: ^4.0.4
   postcss: ^8.5.18 # GHSA-r28c-9q8g-f849
   source-map-js@1: ^1.2.2 # GHSA-68fv-2mgg-jv7q
-  vite@8: ~8.1.6 # GHSA-587h-7wmj-h5pm, GHSA-698v-4r3x-3vcv, GHSA-9jrq-w75r-8gcw, GHSA-r825-w8mm-5pxw, GHSA-rq7h-c2jc-7f22
+  vite@8: ^8.3.5 # GHSA-587h-7wmj-h5pm, GHSA-698v-4r3x-3vcv, GHSA-9jrq-w75r-8gcw, GHSA-r825-w8mm-5pxw, GHSA-rq7h-c2jc-7f22
