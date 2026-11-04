@@ -179,7 +179,7 @@ unsafeWindow`; `@run-at document-start`. `GM_addStyle` doubles as the
   (API) currently omits extended-thinking and attachment extraction that the
   single-conversation DOM path captures — a possible future enhancement
   (prompt attachment URLs sit at `turn[2][0][5]`).
-- **Scope:** exports the operator's own conversations only. No detection
+- **Scope:** exports the user's own conversations only. No detection
   evasion, no mass collection.
 
 ## Constraints
