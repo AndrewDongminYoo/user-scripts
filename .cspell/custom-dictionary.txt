@@ -65,6 +65,7 @@ openharmony
 picocolors
 picomatch
 pids
+pinact
 pionxzh
 pluginutils
 popstate
