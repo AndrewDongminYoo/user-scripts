@@ -62,7 +62,7 @@ pnpm preview
   provided it has content — empty orphans are dropped so JSON and Markdown agree on which
   messages are non-empty.
 - **Deliberately not exported:** uploaded image attachments (`files[]`) and text-block `citations` are out of scope — only `attachments[].extracted_content` (text extracted server-side) and `content[]` blocks are read.
-- **Scope:** exports the operator's own conversations only. No detection evasion,
+- **Scope:** exports the user's own conversations only. No detection evasion,
   no mass collection, polite single-request fetches.
 
 ## Constraints
