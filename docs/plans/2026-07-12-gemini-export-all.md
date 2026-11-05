@@ -22,7 +22,7 @@
 - import-free `src/main.ts`; NO runtime dependencies. TypeScript strict. pnpm only.
 - **Trusted Types**: no `innerHTML` anywhere; scraped/parsed content flows through `textContent`/strings only (already the v1 rule).
 - **Observe-replay, never reconstruct**: the interceptor stores the app's REAL request (url params incl. rotating `bl`/`rpcids`, headers, `f.req` body + `at`) and replays it with only the conversation id swapped. Do NOT hardcode `rpcids`/`bl`/payload shapes — a manually reconstructed request returned empty in testing; a faithful replay of a captured request works.
-- **Politeness / scope**: exports only the operator's own conversations; one request at a time (or small bounded concurrency); no detection evasion.
+- **Politeness / scope**: exports only the user's own conversations; one request at a time (or small bounded concurrency); no detection evasion.
 - Conventional commits, split by concern. NO Co-Author/Claude-Session trailer. Korean user-facing strings intentional.
 - **Live-iteration tasks (1–4) must be validated against real gemini.google.com responses** — a Node stub can't model the `batchexecute` envelope. The controller (browser access) pins the parser and confirms replays; subagents get real captured samples, not guesses.
 
