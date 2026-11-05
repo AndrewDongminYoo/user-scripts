@@ -1195,7 +1195,7 @@ git commit -m "feat(gemini-chat-exporter): JSON format + settings modal"
 
 ## Task 6: DESCOPED — Export-All deferred to v1.1
 
-> **Status: removed from v1 (decided 2026-07-12).** Live testing proved every clean way to iterate multiple conversations from a userscript on gemini.google.com is blocked: a hard `location.assign` navigation loads the conversation but destroys the userscript's execution context (the loop dies); `history.pushState` + `popstate` preserves context but Angular never loads the conversation (0 turns); a synthetic click on a sidebar `gem-nav-list-item` does not trigger the router; and a same-origin iframe to `/app/{id}` is blocked (`contentDocument` null — X-Frame-Options/frame-ancestors). The only robust path is a reload-persistent GM-storage state machine (accept hard nav, persist queue + accumulated output across reloads, assemble the ZIP at the end) — significant added complexity and a repeatedly-reloading UX. The operator chose to defer Export-All to v1.1 and ship the robust single-conversation exporter now.
+> **Status: removed from v1 (decided 2026-07-12).** Live testing proved every clean way to iterate multiple conversations from a userscript on gemini.google.com is blocked: a hard `location.assign` navigation loads the conversation but destroys the userscript's execution context (the loop dies); `history.pushState` + `popstate` preserves context but Angular never loads the conversation (0 turns); a synthetic click on a sidebar `gem-nav-list-item` does not trigger the router; and a same-origin iframe to `/app/{id}` is blocked (`contentDocument` null — X-Frame-Options/frame-ancestors). The only robust path is a reload-persistent GM-storage state machine (accept hard nav, persist queue + accumulated output across reloads, assemble the ZIP at the end) — significant added complexity and a repeatedly-reloading UX. The decision was to defer Export-All to v1.1 and ship the robust single-conversation exporter now.
 >
 > Consequences for v1: the store-only ZIP, `enumerateConversationIds`, and `exportAllConversations` are NOT implemented (no dead code — YAGNI). The disabled `__gce_export_all_btn` created in Task 5 is REMOVED in Task 7.
 >
@@ -1354,7 +1354,7 @@ Replace the minimal body button with a native sidebar trigger + the settings mod
 
 - [ ] **Step 0: Remove the deferred Export-All button (Export-All descoped to v1.1).** In `buildModal`, delete the `allBtn` (`__gce_export_all_btn`) element, its click handler, and its `panel.appendChild`. Remove the now-unused `ALL_ID` and `ALL_LABEL` constants. Keep the single-conversation button (`__gce_export_btn` / `ONE_ID` / `ONE_LABEL`), the progress element, and `setProgress` (still used by the single-export flow). Remove any harness assertion that referenced `__gce_export_all_btn`. Verify `pnpm build && pnpm test` stays green and `pnpm typecheck` reports no unused symbols. Commit this as its own concern (`refactor(gemini-chat-exporter): drop deferred Export-All button`) before the native-UI work, or fold it into the Task 7 commit — either is fine.
 
-- [ ] **Step 1: Live-verify the sidebar mount anchor.** Using the browser (or ask the operator), confirm the selector for Gemini's sidebar container that persists across navigation and where a native "Export" row fits near the conversation list or bottom actions. Candidates seen live: `bard-sidenav-container`, `mat-nav-list`, `[data-test-id="conversations-list"]`. Update `SEL.sidebar` (and a `SEL.sidebarInsertPoint` if needed) to the confirmed value. Record the confirmed selector in a comment. **Do not skip this — the mount point is the only Gemini-DOM coupling and must be real.** (The dual-persistence re-mount — MutationObserver + 1s reconciliation interval — is specified in Step 2's observer block; keep both.)
+- [ ] **Step 1: Live-verify the sidebar mount anchor.** Using the browser (or ask the user), confirm the selector for Gemini's sidebar container that persists across navigation and where a native "Export" row fits near the conversation list or bottom actions. Candidates seen live: `bard-sidenav-container`, `mat-nav-list`, `[data-test-id="conversations-list"]`. Update `SEL.sidebar` (and a `SEL.sidebarInsertPoint` if needed) to the confirmed value. Record the confirmed selector in a comment. **Do not skip this — the mount point is the only Gemini-DOM coupling and must be real.** (The dual-persistence re-mount — MutationObserver + 1s reconciliation interval — is specified in Step 2's observer block; keep both.)
 
 - [ ] **Step 2: Replace `mountUI` + add `buildTrigger`** (ported/adapted from Claude `:1086-1158`):
 
@@ -1475,7 +1475,7 @@ Verify the built script in a real browser (the harness can't cover live DOM/UI),
 Run: `cd gemini-chat-exporter && SCRIPT_VERSION=$(date +%F) pnpm build`
 Expected: `dist/gemini-chat-exporter.user.js` header shows `@version <today>` and `@match https://gemini.google.com/*`.
 
-- [ ] **Step 2: Live-verify in the browser** (operator-driven or via Claude-in-Chrome). Install the built `.user.js` in Tampermonkey (or `pnpm dev` and install the printed URL), then on gemini.google.com confirm, checking each off:
+- [ ] **Step 2: Live-verify in the browser** (user-driven or via Claude-in-Chrome). Install the built `.user.js` in Tampermonkey (or `pnpm dev` and install the printed URL), then on gemini.google.com confirm, checking each off:
   - Export trigger appears in the sidebar (not just the floating pill) on a conversation page.
   - Settings modal opens, renders correctly in light AND dark, persists a format/toggle change across reload.
   - "Export this chat" downloads Markdown that contains the turns, a code block, and (if present) a table — spot-check fidelity against the on-screen conversation.
@@ -1505,7 +1505,7 @@ git add gemini-chat-exporter/README.md gemini-chat-exporter/AGENTS.md CLAUDE.md
 git commit -m "docs(gemini-chat-exporter): README, AGENTS, and CLAUDE.md entry"
 ```
 
-- [ ] **Step 8: Verify release wiring** — confirm `pnpm-workspace.yaml` and `.github/workflows/release.yml` both list `gemini-chat-exporter` (done in Task 1; re-verify). A `feat(gemini-chat-exporter):` commit on `main` must trigger a `gemini-chat-exporter-<date>` release. Do NOT push or tag unless the operator asks.
+- [ ] **Step 8: Verify release wiring** — confirm `pnpm-workspace.yaml` and `.github/workflows/release.yml` both list `gemini-chat-exporter` (done in Task 1; re-verify). A `feat(gemini-chat-exporter):` commit on `main` must trigger a `gemini-chat-exporter-<date>` release. Do NOT push or tag unless the user asks.
 
 ---
 

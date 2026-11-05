@@ -71,7 +71,7 @@ interface Conversation {
 ## Completeness (the load-bearing risk)
 
 Gemini renders chat history inside `<infinite-scroller class="chat-history">`, which lazy-loads older turns on upward scroll.
-Whether it _recycles_ (virtualizes) DOM nodes for very long conversations was **not** confirmed live — the operator's own conversations are short (2–4 turns, single-viewport, no recycling observed, first-turn node persisted across scroll).
+Whether it _recycles_ (virtualizes) DOM nodes for very long conversations was **not** confirmed live — my own conversations are short (2–4 turns, single-viewport, no recycling observed, first-turn node persisted across scroll).
 
 Mitigation, chosen so the unresolved detail cannot cause data loss:
 `ensureAllTurnsLoaded` scrolls the scroller to top in a loop until the accumulated turn count is stable across two passes, accumulating each turn into a `Map` keyed by a stable turn identity (prompt-hash + ordinal), and only then renders.
