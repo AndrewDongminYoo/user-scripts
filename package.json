@@ -16,7 +16,7 @@
     "automation"
   ],
   "license": "MIT",
-  "packageManager": "pnpm@10.26.2",
+  "packageManager": "pnpm@12.21.0",
   "devDependencies": {
     "@types/node": "^26.6.6"
   }
