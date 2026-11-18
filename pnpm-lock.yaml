@@ -172,14 +172,9 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  brace-expansion@1: ^1.1.21
   esbuild: ^0.28.1
   minimatch: ^3.1.4
-  nanoid: ^3.3.18
   picomatch: ^4.0.4
-  postcss: ^8.5.18
-  source-map-js@1: ^1.2.2
-  vite@8: ^8.3.5
 
 importers:
 
@@ -195,7 +190,7 @@ importers:
         specifier: ~7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.3.5
+        specifier: ^8.3.8
         version: 8.3.8(@types/node@26.6.6)
       vite-plugin-monkey:
         specifier: ^8.1.1
@@ -207,7 +202,7 @@ importers:
         specifier: ~7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.3.5
+        specifier: ^8.3.8
         version: 8.3.8(@types/node@26.6.6)
       vite-plugin-monkey:
         specifier: ^8.1.1
@@ -222,7 +217,7 @@ importers:
         specifier: ~7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.3.5
+        specifier: ^8.3.8
         version: 8.3.8(@types/node@26.6.6)
       vite-plugin-monkey:
         specifier: ^8.1.1
@@ -855,7 +850,7 @@ packages:
     resolution: {integrity: sha512-/oBzyLOHQvXvVr/7bzZOFD5lYTy1nomVE4aMA9eY5KQsHfWLDIzb86q8XoUsmrj2xKoGYMAvd884EzJEQzuXIw==}
     engines: {node: '>=10'}
     peerDependencies:
-      postcss: ^8.5.18
+      postcss: ^8.0.0
 
   postcss@8.5.33:
     resolution: {integrity: sha512-RVHEU9/Pp1Fnjr/MpAJsZoADukCKhfIi15OunEYiGktIkYLkPVvC1sioWolGDS7XByMTx9m/IGbro0Js13zhnQ==}
@@ -916,7 +911,7 @@ packages:
   vite-plugin-monkey@8.1.1:
     resolution: {integrity: sha512-9mX7eTHzkCnVV5+TTW4/Xt5gKol/3g5ilJXUJd6iiCwJz4tmWUB+Qfk3YUL+b5ZGDfult2ScbxFuPkrm/NUXIg==}
     peerDependencies:
-      vite: ^8.3.5
+      vite: ^8.0.0
     peerDependenciesMeta:
       vite:
         optional: true
