@@ -1,2 +1,6 @@
-# All known vulnerabilities are addressed via the `overrides` block in pnpm-workspace.yaml.
-# No ignored vulns remain — patches exist for every reported CVE.
+# Vulnerabilities with a patched release are fixed by version bumps or the `overrides` block in pnpm-workspace.yaml.
+# Entries below have no patched release yet; each records its reachability evidence.
+
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+reason = "picomatch@4.0.7 has no patched release as of 2026-11-18. GitHub advisory data reports no first patched version for the affected range <= 4.0.7, and npm view picomatch versions ends at 4.0.7. Reachability evidence: pnpm why picomatch shows only dev paths (fdir 6.5.0 -> tinyglobby 0.2.17 -> vite 8.3.8 and vite-plugin-monkey 8.1.1, devDependencies of all three userscripts), pnpm why picomatch --prod is empty, and the built and released .user.js files contain no picomatch, tinyglobby or fdir. Re-evaluate before passing user-supplied glob patterns to any tool. Approved on 2026-11-18. Remove when a picomatch release outside the affected range is available."
