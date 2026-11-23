@@ -9,3 +9,8 @@ overrides:
   esbuild: ^0.28.1
   minimatch: ^3.1.4
   picomatch: ^4.0.4
+
+# With "packageManager" set, pnpm 12 otherwise writes an env document first in
+# pnpm-lock.yaml; GitHub's dependency graph reads only that first document and
+# Dependabot then sees no dependencies at all (pnpm/pnpm#13805).
+pmOnFail: ignore
