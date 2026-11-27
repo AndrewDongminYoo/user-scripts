@@ -14,8 +14,8 @@ importers:
   .:
     devDependencies:
       '@types/node':
-        specifier: ^26.6.6
-        version: 26.6.6
+        specifier: ^26.6.11
+        version: 26.6.11
 
   claude-chat-exporter:
     devDependencies:
@@ -24,10 +24,10 @@ importers:
         version: 7.0.2
       vite:
         specifier: ^8.3.8
-        version: 8.3.8(@types/node@26.6.6)
+        version: 8.3.8(@types/node@26.6.11)
       vite-plugin-monkey:
         specifier: ^8.1.1
-        version: 8.1.1(postcss@8.5.33)(vite@8.3.8(@types/node@26.6.6))
+        version: 8.1.1(postcss@8.5.33)(vite@8.3.8(@types/node@26.6.11))
 
   gemini-chat-exporter:
     devDependencies:
@@ -36,10 +36,10 @@ importers:
         version: 7.0.2
       vite:
         specifier: ^8.3.8
-        version: 8.3.8(@types/node@26.6.6)
+        version: 8.3.8(@types/node@26.6.11)
       vite-plugin-monkey:
         specifier: ^8.1.1
-        version: 8.1.1(postcss@8.5.33)(vite@8.3.8(@types/node@26.6.6))
+        version: 8.1.1(postcss@8.5.33)(vite@8.3.8(@types/node@26.6.11))
 
   wanted-applied-marker:
     devDependencies:
@@ -51,10 +51,10 @@ importers:
         version: 7.0.2
       vite:
         specifier: ^8.3.8
-        version: 8.3.8(@types/node@26.6.6)
+        version: 8.3.8(@types/node@26.6.11)
       vite-plugin-monkey:
         specifier: ^8.1.1
-        version: 8.1.1(postcss@8.5.33)(vite@8.3.8(@types/node@26.6.6))
+        version: 8.1.1(postcss@8.5.33)(vite@8.3.8(@types/node@26.6.11))
 
 packages:
 
@@ -330,14 +330,14 @@ packages:
   '@tybys/wasm-util@0.10.5':
     resolution: {integrity: sha512-dOGOPxlaNV+G046mZzN+9C0dAcQZeSKcXiVaM0TYy/LM4ttTmgSBDxYfovcYI8Em3+eAbiAYpvWLOv8+ZVRJKA==}
 
-  '@types/estree@1.0.10':
-    resolution: {integrity: sha512-lTyOMnOcmRBzdCv6/4zUZCrEhV0xrqQiUZBZtVcbmLHBXKLnN8q89v/wKRF/Q0HbwVsqbIG3o5HDoFl9sduM+g==}
+  '@types/estree@1.0.11':
+    resolution: {integrity: sha512-YBdNe5JcjYR0sPhJW1QIeRCmI11YhYvaRuGCs9+WCeTTb+Yhb2BE2XMe5/wAqF10FK5g3+q1PDhQABfT7aX0gg==}
 
   '@types/greasemonkey@4.0.7':
     resolution: {integrity: sha512-DuYBRf/T4zixO/xhQ3eicZCBjjOgbSSXuHP5XkLNf/UBayrJpBniP9il/AQaPy0lffl4Bco48zgHL+pZmQ6Q0A==}
 
-  '@types/node@26.6.6':
-    resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
+  '@types/node@26.6.11':
+    resolution: {integrity: sha512-uUyQ2XLEz+EXh34lmS3GhKrkqn/8FU7KUiKRpk347At2bmnMVWss45yz8b4FG/tUtmV1tV/+TVkITItPROyeeQ==}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     resolution: {integrity: sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==}
@@ -970,11 +970,11 @@ snapshots:
       tslib: 2.9.1
     optional: true
 
-  '@types/estree@1.0.10': {}
+  '@types/estree@1.0.11': {}
 
   '@types/greasemonkey@4.0.7': {}
 
-  '@types/node@26.6.6':
+  '@types/node@26.6.11':
     dependencies:
       undici-types: 8.9.0
 
@@ -1248,7 +1248,7 @@ snapshots:
 
   rollup@4.68.8:
     dependencies:
-      '@types/estree': 1.0.10
+      '@types/estree': 1.0.11
     optionalDependencies:
       '@rollup/rollup-android-arm-eabi': 4.68.8
       '@rollup/rollup-android-arm64': 4.68.8
@@ -1325,7 +1325,7 @@ snapshots:
 
   undici-types@8.9.0: {}
 
-  vite-plugin-monkey@8.1.1(postcss@8.5.33)(vite@8.3.8(@types/node@26.6.6)):
+  vite-plugin-monkey@8.1.1(postcss@8.5.33)(vite@8.3.8(@types/node@26.6.11)):
     dependencies:
       acorn-walk: 8.3.5
       cross-spawn: 7.0.6
@@ -1339,11 +1339,11 @@ snapshots:
       rollup: 4.68.8
       systemjs: 6.15.1
     optionalDependencies:
-      vite: 8.3.8(@types/node@26.6.6)
+      vite: 8.3.8(@types/node@26.6.11)
     transitivePeerDependencies:
       - postcss
 
-  vite@8.3.8(@types/node@26.6.6):
+  vite@8.3.8(@types/node@26.6.11):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -1351,7 +1351,7 @@ snapshots:
       rolldown: 1.2.19
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 26.6.6
+      '@types/node': 26.6.11
       fsevents: 2.3.3
 
   which@2.0.2:
